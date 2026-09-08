@@ -1,0 +1,469 @@
+#!/usr/bin/env python3
+"""haiku-shunt: report on what the shunt actually saved, and measure it.
+
+Subcommands:
+  report    read the event log and print the savings table
+  analyze   read session transcripts and replace estimates with measurements
+  doctor    check the installation and the assumptions the cost model rests on
+"""
+import argparse, glob, json, os, statistics, sys, time
+from datetime import datetime, timedelta, timezone
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+CFG = json.load(open(os.path.join(ROOT, "config", "defaults.json")))
+PRICE = CFG["pricing_usd_per_mtok"]
+KW = PRICE["cache_write_multiplier"]
+KR = PRICE["cache_read_multiplier"]
+
+
+def log_dir():
+    for d in (os.environ.get("SHUNT_LOG_DIR"),
+              (os.environ.get("HAIKU_SHUNT_PLUGIN_DATA") or "") + "/metrics",
+              (os.environ.get("CLAUDE_PLUGIN_DATA") or "") + "/metrics",
+              (os.environ.get("CLAUDE_PROJECT_DIR") or "") + "/.haiku-shunt/metrics",
+              os.path.expanduser(os.environ.get("XDG_STATE_HOME", "~/.local/state"))
+              + "/haiku-shunt/metrics"):
+        if d and d != "/metrics" and os.path.isdir(d):
+            return d
+    return None
+
+
+def load_events(since_days=None):
+    d = log_dir()
+    if not d:
+        return []
+    cutoff = None
+    if since_days is not None:
+        cutoff = datetime.now(timezone.utc) - timedelta(days=since_days)
+    out = []
+    for f in sorted(glob.glob(os.path.join(d, "events-*.jsonl"))):
+        for line in open(f, errors="replace"):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                r = json.loads(line)
+            except ValueError:
+                continue
+            if cutoff:
+                try:
+                    if datetime.fromisoformat(r["ts"].replace("Z", "+00:00")) < cutoff:
+                        continue
+                except (KeyError, ValueError):
+                    pass
+            out.append(r)
+    return out
+
+
+def rate(model, key):
+    m = PRICE["models"].get(model)
+    if not m:
+        for k, v in PRICE["models"].items():
+            if model and model.startswith(k):
+                m = v
+                break
+    return (m or PRICE["models"][PRICE["default_parent"]])[key]
+
+
+def parent_factor(turns, cache_hit):
+    """Cost multiplier applied to tokens that enter the parent context.
+
+    Content is cache-written once (1.25x), then re-sent on every later turn --
+    at the cache-read rate when it hits (0.10x) and at full rate when it does
+    not. This second term is where the saving actually comes from.
+    """
+    mu = KR * cache_hit + 1.0 * (1.0 - cache_hit)
+    return KW + mu * turns
+
+
+def worker_cost(usage):
+    if not usage:
+        return None
+    model = usage.get("model") or PRICE["default_worker"]
+    ri, ro = rate(model, "input"), rate(model, "output")
+    return (usage.get("input_tokens", 0) * ri
+            + usage.get("cache_creation_input_tokens", 0) * KW * ri
+            + usage.get("cache_read_input_tokens", 0) * KR * ri
+            + usage.get("output_tokens", 0) * ro) / 1e6
+
+
+def breakeven_tokens(parent, turns, cache_hit, floor, worker_out=500):
+    """Smallest file worth shunting: below this, the worker's fixed cost
+    exceeds what keeping the file out of the parent saves."""
+    p_in = rate(parent, "input")
+    h_in = rate(PRICE["default_worker"], "input")
+    h_out = rate(PRICE["default_worker"], "output")
+    denom = p_in * parent_factor(turns, cache_hit) - KW * h_in
+    if denom <= 0:
+        return None
+    return (floor * KW * h_in + worker_out * h_out) / denom
+
+
+def measured_floor(events, default=14600, want_source=False):
+    """The fixed cache-write a worker pays before it reads anything, taken
+    from this installation's own delegations rather than assumed."""
+    vals = [e["usage"]["cache_creation_input_tokens"]
+            for e in events
+            if e.get("event") == "delegation" and e.get("usage")
+            and e["usage"].get("requests", 0) >= 1
+            and e["usage"].get("cache_creation_input_tokens")]
+    val = int(statistics.median(vals)) if vals else default
+    return (val, ("measured from %d delegation(s)" % len(vals)) if vals
+            else "default; none measured yet") if want_source else val
+
+
+def fmt_usd(x):
+    return f"${x:,.4f}" if abs(x) < 100 else f"${x:,.2f}"
+
+
+def cmd_report(a):
+    ev = load_events(a.since)
+    if not ev:
+        print("No events yet. Log dir: " + (log_dir() or "<none found>"))
+        return 0
+    hooks = [e for e in ev if e.get("event") == "hook_decision"]
+    dels = {}
+    for e in ev:
+        if e.get("event") == "delegation":
+            dels.setdefault(e.get("worker_agent_id") or f"anon{len(dels)}", {}).update(e)
+    dels = list(dels.values())
+
+    if a.worker_floor:
+        floor, floor_src = a.worker_floor, "pinned by --worker-floor"
+    else:
+        floor, floor_src = measured_floor(ev, want_source=True)
+    factor = parent_factor(a.turns, a.cache_hit)
+    p_in = rate(a.parent, "input")
+
+    denies = [h for h in hooks if h.get("decision") == "deny"]
+    avoided = sum(h.get("est_tokens_avoided") or 0 for h in denies)
+    uncapped = sum(h.get("est_tokens_uncapped") or 0 for h in denies)
+
+    overhead_tok = sum(
+        (a.deny_reason_tokens + a.task_prompt_tokens + (d.get("summary_tokens") or a.summary_tokens))
+        for d in dels) if dels else a.deny_reason_tokens * len(denies)
+
+    gross = avoided * p_in * factor / 1e6
+    overhead = overhead_tok * p_in * factor / 1e6
+    measured = [d for d in dels if d.get("usage")]
+    estimated = [d for d in dels if not d.get("usage")]
+    w_measured = sum(worker_cost(d["usage"]) or 0 for d in measured)
+    w_estimated = sum((KW * rate(PRICE["default_worker"], "input") * floor
+                       + 500 * rate(PRICE["default_worker"], "output")) / 1e6
+                      for _ in estimated)
+    net = gross - overhead - w_measured - w_estimated
+    be = breakeven_tokens(a.parent, a.turns, a.cache_hit, floor)
+
+    if a.format == "json":
+        print(json.dumps({
+            "hook_calls": len(hooks), "denies": len(denies),
+            "delegations": len(dels), "measured": len(measured),
+            "tokens_avoided_capped": avoided, "tokens_avoided_uncapped": uncapped,
+            "gross_usd": round(gross, 6), "overhead_usd": round(overhead, 6),
+            "worker_cost_usd": round(w_measured + w_estimated, 6),
+            "worker_cost_measured_usd": round(w_measured, 6),
+            "net_usd": round(net, 6),
+            "breakeven_tokens": round(be) if be else None,
+            "worker_floor_tokens": floor,
+            "parent": a.parent, "turns": a.turns, "cache_hit": a.cache_hit,
+        }, indent=2))
+        return 0
+
+    turns_src = "measured" if a.turns_measured else "assumed"
+    print(f"\nhaiku-shunt report      log: {log_dir()}")
+    print(f"parent={a.parent} ${p_in}/MTok in   worker={PRICE['default_worker']}   "
+          f"R={a.turns} ({turns_src})   h={a.cache_hit}   T=chars/4\n")
+
+    print("DECISIONS")
+    print(f"  {'hook':<14}{'fired':>7}{'deny':>7}{'none':>7}{'deny%':>8}{'p50 ms':>9}{'p95 ms':>9}")
+    for hk in sorted({h.get("hook") for h in hooks if h.get("hook")}):
+        rows = [h for h in hooks if h.get("hook") == hk]
+        dn = sum(1 for h in rows if h.get("decision") == "deny")
+        lat = sorted(h.get("latency_ms") or 0 for h in rows)
+        p50 = lat[len(lat) // 2] if lat else 0
+        p95 = lat[min(len(lat) - 1, int(len(lat) * 0.95))] if lat else 0
+        print(f"  {hk:<14}{len(rows):>7}{dn:>7}{len(rows)-dn:>7}"
+              f"{100*dn/max(1,len(rows)):>7.1f}%{p50:>9}{p95:>9}")
+
+    counts = {}
+    for h in hooks:
+        counts[(h.get("decision"), h.get("reason_code"))] = \
+            counts.get((h.get("decision"), h.get("reason_code")), 0) + 1
+    print("\nWHY")
+    for (dec, rc), n in sorted(counts.items(), key=lambda kv: -kv[1])[:10]:
+        print(f"  {dec:<6} {rc:<24}{n:>6}")
+
+    print(f"\nDELEGATIONS  {len(dels)} total, {len(measured)} with measured usage")
+    if measured:
+        turns = [d["usage"].get("requests", 0) for d in measured]
+        print(f"  worker requests per delegation: min {min(turns)}  "
+              f"median {int(statistics.median(turns))}  max {max(turns)}")
+        over = [d for d in measured if d["usage"].get("requests", 0) > 6]
+        if over:
+            print(f"  {len(over)} delegation(s) took >6 requests - a wandering worker "
+                  f"can cost more than the read it replaced")
+
+    print("\nTOKENS (parent context)")
+    print(f"  avoided, capped at Read's {CFG['thresholds']['read_truncation_lines']}-line limit"
+          f"{avoided:>14,}")
+    print(f"  avoided, uncapped (whole-file, Spotify-style){uncapped:>14,}"
+          + (f"   +{100*(uncapped-avoided)/max(1,avoided):.1f}%" if uncapped > avoided else ""))
+    print(f"  overhead paid back (deny + prompt + summary){overhead_tok:>15,}")
+
+    print("\nMONEY (USD)")
+    print(f"  {'gross parent saving':<34}{fmt_usd(gross):>13}   estimated")
+    print(f"  {'parent overhead':<34}{'-' + fmt_usd(overhead):>13}   estimated")
+    print(f"  {f'worker cost ({len(measured)} measured)':<34}"
+          f"{'-' + fmt_usd(w_measured):>13}   MEASURED")
+    if estimated:
+        print(f"  {f'worker cost ({len(estimated)} estimated)':<34}"
+              f"{'-' + fmt_usd(w_estimated):>13}   estimated")
+    print(f"  {'-'*50}")
+    print(f"  {'NET':<34}{fmt_usd(net):>13}")
+
+    if be:
+        lines_est = int(be / 13)   # ~52 bytes/line / 4
+        print(f"\n  break-even file size at these settings: {be:,.0f} tokens "
+              f"(~{lines_est:,} lines)")
+        below = sum(1 for h in denies if (h.get("est_tokens_avoided") or 0) < be)
+        if below:
+            print(f"  {below}/{len(denies)} denies were BELOW break-even "
+                  f"- raise SHUNT_MIN_LINES (currently {CFG['thresholds']['min_lines']})")
+    print(f"\nASSUMPTIONS  T=chars/4 (+-15%); R={a.turns} {turns_src}; cache write {KW}x, "
+          f"read {KR}x;\n  worker floor {floor:,} tok (measured from your own delegations);\n"
+          f"  the counterfactual - whether you would have read the file at all - is not\n"
+          f"  observable, so the parent-side saving is a model, not a measurement.\n"
+          f"  Run `haiku-shunt analyze` to replace assumed R with a counted one.")
+    return 0
+
+
+def transcript_dirs():
+    return glob.glob(os.path.expanduser("~/.claude/projects/*"))
+
+
+def cmd_analyze(a):
+    targets = []
+    if a.transcript:
+        targets = [a.transcript]
+    else:
+        for d in transcript_dirs():
+            targets += sorted(glob.glob(os.path.join(d, "*.jsonl")),
+                              key=os.path.getmtime, reverse=True)
+        if not a.all:
+            targets = targets[:1]
+    if not targets:
+        print("No transcripts found.", file=sys.stderr)
+        return 1
+
+    workers = set(CFG["policy"]["worker_agents"])
+    out_rows, records = [], []
+    for t in targets:
+        sub = os.path.join(os.path.splitext(t)[0], "subagents")
+        if not os.path.isdir(sub):
+            continue
+        parent = [json.loads(l) for l in open(t, errors="replace")
+                  if l.strip().startswith("{")]
+        # Parent assistant turns, deduped, in order -- used to count how many
+        # turns each delegation's saving actually compounds over.
+        turns = []
+        for r in parent:
+            if r.get("type") == "assistant" and r.get("timestamp"):
+                turns.append(r["timestamp"])
+        turns.sort()
+
+        results = {}
+        for r in parent:
+            tr = r.get("toolUseResult")
+            if tr is not None and r.get("sourceToolAssistantUUID"):
+                results[r.get("uuid")] = len(json.dumps(tr))
+
+        for meta_f in sorted(glob.glob(os.path.join(sub, "agent-*.meta.json"))):
+            try:
+                meta = json.load(open(meta_f))
+            except ValueError:
+                continue
+            # plugin agents are namespaced: "haiku-shunt:bulk-reader"
+            if (meta.get("agentType") or "").split(":")[-1] not in workers:
+                continue
+            tf = meta_f.replace(".meta.json", ".jsonl")
+            if not os.path.isfile(tf):
+                continue
+            rows = [json.loads(l) for l in open(tf, errors="replace")
+                    if l.strip().startswith("{")]
+            usage = aggregate_usage(rows)
+            started = min((r["timestamp"] for r in rows if r.get("timestamp")), default=None)
+            r_remaining = sum(1 for ts in turns if started and ts > started)
+            aid = os.path.basename(tf)[len("agent-"):-len(".jsonl")]
+            rec = {"v": 1, "ts": datetime.now(timezone.utc).isoformat(),
+                   "event": "delegation", "phase": "backfill",
+                   "worker_agent_id": aid, "worker_agent_type": meta.get("agentType"),
+                   "worker_agent_base": (meta.get("agentType") or "").split(":")[-1],
+                   "transcript_path": t, "worker_transcript_path": tf,
+                   "tool_use_id": meta.get("toolUseId"),
+                   "spawn_depth": meta.get("spawnDepth"),
+                   "usage": usage, "usage_source": "backfill",
+                   "turns_remaining": r_remaining, "status": "ok"}
+            records.append(rec)
+            out_rows.append(((meta.get("agentType") or "").split(":")[-1], aid[:12],
+                             usage["requests"], usage["cache_creation_input_tokens"],
+                             usage["cache_read_input_tokens"], usage["output_tokens"],
+                             worker_cost(usage), r_remaining))
+
+    if not out_rows:
+        print("No bulk-reader/code-writer delegations found in "
+              f"{len(targets)} transcript(s).")
+        print("Nothing to measure yet - this is expected until the plugin has "
+              "actually delegated something.")
+        return 0
+
+    print(f"\n{'agent':<13}{'worker':<14}{'reqs':>5}{'cache-wr':>10}{'cache-rd':>10}"
+          f"{'out':>8}{'cost':>10}{'R':>5}")
+    for row in out_rows:
+        print(f"{row[0]:<13}{row[1]:<14}{row[2]:>5}{row[3]:>10,}{row[4]:>10,}"
+              f"{row[5]:>8,}{fmt_usd(row[6]):>10}{row[7]:>5}")
+    total = sum(r[6] for r in out_rows)
+    print(f"{'':<13}{'TOTAL':<14}{'':>5}{'':>10}{'':>10}{'':>8}{fmt_usd(total):>10}")
+
+    if a.write:
+        d = log_dir()
+        if not d:
+            print("\nNo log dir; not writing backfill records.", file=sys.stderr)
+            return 0
+        f = os.path.join(d, f"events-{datetime.now(timezone.utc):%Y-%m-%d}.jsonl")
+        with open(f, "a") as fh:
+            for rec in records:
+                fh.write(json.dumps(rec) + "\n")
+        print(f"\nWrote {len(records)} backfill record(s) to {f}")
+    else:
+        print("\n(--write to fold these measurements into the event log)")
+    return 0
+
+
+def aggregate_usage(rows):
+    """Same rule as hooks/lib/usage.jq -- see the comment there for why
+    output_tokens needs max() and the input side does not."""
+    by_id = {}
+    for r in rows:
+        u = (r.get("message") or {}).get("usage")
+        if not u:
+            continue
+        mid = (r.get("message") or {}).get("id")
+        cur = by_id.setdefault(mid, {"input": u.get("input_tokens", 0),
+                                     "cc": u.get("cache_creation_input_tokens", 0),
+                                     "cr": u.get("cache_read_input_tokens", 0),
+                                     "out": 0,
+                                     "model": (r.get("message") or {}).get("model")})
+        cur["out"] = max(cur["out"], u.get("output_tokens", 0))
+    return {"requests": len(by_id),
+            "model": next((v["model"] for v in reversed(list(by_id.values()))
+                           if v["model"]), None),
+            "input_tokens": sum(v["input"] for v in by_id.values()),
+            "cache_creation_input_tokens": sum(v["cc"] for v in by_id.values()),
+            "cache_read_input_tokens": sum(v["cr"] for v in by_id.values()),
+            "output_tokens": sum(v["out"] for v in by_id.values())}
+
+
+def cmd_doctor(a):
+    ok = True
+    def chk(label, good, detail=""):
+        nonlocal ok
+        print(f"  [{'ok' if good else 'FAIL'}] {label}" + (f"  {detail}" if detail else ""))
+        ok = ok and good
+
+    print("\nhaiku-shunt doctor\n")
+    print("environment")
+    chk("jq present", os.system("command -v jq >/dev/null 2>&1") == 0)
+    chk("python3 >= 3.8", sys.version_info >= (3, 8), sys.version.split()[0])
+    chk("flock present", os.system("command -v flock >/dev/null 2>&1") == 0)
+    d = log_dir()
+    chk("log dir writable", bool(d) and os.access(d, os.W_OK), d or "not found")
+    if d:
+        try:
+            import subprocess
+            fs = subprocess.run(["stat", "-f", "-c", "%T", d], capture_output=True,
+                                text=True).stdout.strip()
+            if fs in ("nfs", "cifs", "fuseblk"):
+                print(f"  [warn] log dir is on {fs}; set SHUNT_LOG_LOCK=1 "
+                      "(O_APPEND atomicity is not guaranteed there)")
+        except Exception:
+            pass
+
+    print("\nhooks")
+    for h in ("read-guard.sh", "bash-guard.sh", "subagent-stop.sh"):
+        p = os.path.join(ROOT, "hooks", h)
+        chk(h, os.access(p, os.X_OK))
+
+    print("\nassumptions the cost model rests on")
+    ev = load_events()
+    floor, floor_src = measured_floor(ev, want_source=True)
+    print(f"  worker cache-write floor: {floor:,} tokens ({floor_src})")
+    for parent in ("claude-sonnet-5", "claude-opus-5"):
+        be = breakeven_tokens(parent, 12, 0.9, floor)
+        print(f"  break-even vs {parent:<18} {be:>8,.0f} tokens  (~{be/13:>5,.0f} lines) "
+              f"at R=12")
+    cur = CFG["thresholds"]["min_lines"]
+    be_s = breakeven_tokens("claude-sonnet-5", 12, 0.9, floor)
+    if be_s and cur * 13 < be_s:
+        print(f"\n  NOTE: SHUNT_MIN_LINES={cur} is below break-even for a Sonnet parent.")
+        print(f"        Consider SHUNT_MIN_LINES={int(be_s/13)} on Sonnet; "
+              f"{cur} suits an Opus parent.")
+
+    print("\nneeds one live delegation to confirm")
+    ev_agents = {e.get("agent_type") for e in ev
+                 if e.get("event") == "hook_decision" and e.get("agent_type")}
+    ours = {a for a in ev_agents if a.split(":")[-1] in CFG["policy"]["worker_agents"]}
+    if ours:
+        print(f"  [ok]   recursion guard has fired for: {', '.join(sorted(ours))}")
+    else:
+        print("  [....] agent_type has not yet been seen from one of our workers.")
+        print("         Expect the NAMESPACED form, e.g. 'haiku-shunt:bulk-reader' -")
+        print("         plugin agents are not delivered under their bare name.")
+    models = {e["usage"]["model"] for e in ev
+              if e.get("event") == "delegation" and (e.get("usage") or {}).get("model")}
+    if models:
+        good = all("haiku" in m for m in models)
+        print(f"  [{'ok' if good else 'FAIL'}]   worker ran on: {', '.join(sorted(models))}")
+        if not good:
+            print("         The model: field is NOT validated by `claude plugin validate`.")
+    else:
+        print("  [....] no delegation measured yet, so the worker's model is unconfirmed.")
+        print("         `claude plugin validate` does NOT check the model: field - it")
+        print("         accepts a nonexistent model - so this is the only real check.")
+    print("  Delegate once, then re-run doctor (or `haiku-shunt analyze`).\n")
+    return 0 if ok else 1
+
+
+def main():
+    p = argparse.ArgumentParser(prog="haiku-shunt")
+    sub = p.add_subparsers(dest="cmd", required=True)
+
+    r = sub.add_parser("report", help="savings table from the event log")
+    r.add_argument("--since", type=float, default=None, metavar="DAYS")
+    r.add_argument("--parent", default=PRICE["default_parent"])
+    r.add_argument("--turns", type=int, default=CFG["estimation"]["assumed_turns_remaining"])
+    r.add_argument("--cache-hit", type=float, default=CFG["estimation"]["assumed_cache_hit_rate"])
+    r.add_argument("--format", choices=["table", "json"], default="table")
+    r.add_argument("--deny-reason-tokens", type=int, default=140)
+    r.add_argument("--task-prompt-tokens", type=int, default=200)
+    r.add_argument("--summary-tokens", type=int, default=300)
+    r.add_argument("--worker-floor", type=int, default=None,
+                   help="pin the worker's fixed cache-write cost in tokens "
+                        "(default: the median measured from your own delegations)")
+    r.add_argument("--turns-measured", action="store_true", help=argparse.SUPPRESS)
+    r.set_defaults(func=cmd_report)
+
+    an = sub.add_parser("analyze", help="measure real worker cost from transcripts")
+    an.add_argument("transcript", nargs="?")
+    an.add_argument("--all", action="store_true", help="every project, not just the newest session")
+    an.add_argument("--write", action="store_true", help="append backfill records to the event log")
+    an.set_defaults(func=cmd_analyze)
+
+    d = sub.add_parser("doctor", help="check install and cost-model assumptions")
+    d.set_defaults(func=cmd_doctor)
+
+    a = p.parse_args()
+    sys.exit(a.func(a))
+
+
+if __name__ == "__main__":
+    main()

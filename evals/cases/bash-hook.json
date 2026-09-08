@@ -1,0 +1,1939 @@
+{
+  "cases": [
+    {
+      "name": "cat_large",
+      "hook": "bash",
+      "why": "",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "session_id": "cat_large",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "command": "cat @FIX:b@"
+        }
+      },
+      "expect": {
+        "decision": "deny",
+        "reason_code": "over_threshold"
+      },
+      "fixtures": {
+        "b": {
+          "mode": "seq",
+          "lines": 500,
+          "name": "big.txt"
+        }
+      }
+    },
+    {
+      "name": "cat_small",
+      "hook": "bash",
+      "why": "",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "session_id": "cat_small",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "command": "cat @FIX:b@"
+        }
+      },
+      "expect": {
+        "decision": "none",
+        "reason_code": "under_threshold"
+      },
+      "fixtures": {
+        "b": {
+          "mode": "seq",
+          "lines": 100,
+          "name": "big.txt"
+        }
+      }
+    },
+    {
+      "name": "less_large",
+      "hook": "bash",
+      "why": "",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "session_id": "less_large",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "command": "less @FIX:b@"
+        }
+      },
+      "expect": {
+        "decision": "deny",
+        "reason_code": "over_threshold"
+      },
+      "fixtures": {
+        "b": {
+          "mode": "seq",
+          "lines": 500,
+          "name": "big.txt"
+        }
+      }
+    },
+    {
+      "name": "more_large",
+      "hook": "bash",
+      "why": "",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "session_id": "more_large",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "command": "more @FIX:b@"
+        }
+      },
+      "expect": {
+        "decision": "deny",
+        "reason_code": "over_threshold"
+      },
+      "fixtures": {
+        "b": {
+          "mode": "seq",
+          "lines": 500,
+          "name": "big.txt"
+        }
+      }
+    },
+    {
+      "name": "bat_large",
+      "hook": "bash",
+      "why": "",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "session_id": "bat_large",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "command": "bat @FIX:b@"
+        }
+      },
+      "expect": {
+        "decision": "deny",
+        "reason_code": "over_threshold"
+      },
+      "fixtures": {
+        "b": {
+          "mode": "seq",
+          "lines": 500,
+          "name": "big.txt"
+        }
+      }
+    },
+    {
+      "name": "non_reader_is_fast",
+      "hook": "bash",
+      "why": "fast path must not stat anything",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "session_id": "non_reader_is_fast",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "command": "echo hello"
+        }
+      },
+      "expect": {
+        "decision": "none",
+        "reason_code": "not_a_reader_command",
+        "max_latency_ms": 120
+      }
+    },
+    {
+      "name": "git_status",
+      "hook": "bash",
+      "why": "",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "session_id": "git_status",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "command": "git status"
+        }
+      },
+      "expect": {
+        "decision": "none",
+        "reason_code": "not_a_reader_command"
+      }
+    },
+    {
+      "name": "head_bounded_100",
+      "hook": "bash",
+      "why": "upstream blocks this; 100 lines is a windowed read",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "session_id": "head_bounded_100",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "command": "head -100 @FIX:b@"
+        }
+      },
+      "expect": {
+        "decision": "none",
+        "reason_code": "under_threshold"
+      },
+      "fixtures": {
+        "b": {
+          "mode": "seq",
+          "lines": 5000,
+          "name": "huge.txt"
+        }
+      }
+    },
+    {
+      "name": "head_n_100",
+      "hook": "bash",
+      "why": "",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "session_id": "head_n_100",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "command": "head -n 100 @FIX:b@"
+        }
+      },
+      "expect": {
+        "decision": "none",
+        "reason_code": "under_threshold"
+      },
+      "fixtures": {
+        "b": {
+          "mode": "seq",
+          "lines": 5000,
+          "name": "huge.txt"
+        }
+      }
+    },
+    {
+      "name": "head_bare",
+      "hook": "bash",
+      "why": "bare head is 10 lines",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "session_id": "head_bare",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "command": "head @FIX:b@"
+        }
+      },
+      "expect": {
+        "decision": "none",
+        "reason_code": "under_threshold"
+      },
+      "fixtures": {
+        "b": {
+          "mode": "seq",
+          "lines": 5000,
+          "name": "huge.txt"
+        }
+      }
+    },
+    {
+      "name": "head_n_5000",
+      "hook": "bash",
+      "why": "bounded but still the whole file",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "session_id": "head_n_5000",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "command": "head -n 5000 @FIX:b@"
+        }
+      },
+      "expect": {
+        "decision": "deny",
+        "reason_code": "over_threshold"
+      },
+      "fixtures": {
+        "b": {
+          "mode": "seq",
+          "lines": 5000,
+          "name": "huge.txt"
+        }
+      }
+    },
+    {
+      "name": "head_5000",
+      "hook": "bash",
+      "why": "legacy -NUM syntax",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "session_id": "head_5000",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "command": "head -5000 @FIX:b@"
+        }
+      },
+      "expect": {
+        "decision": "deny",
+        "reason_code": "over_threshold"
+      },
+      "fixtures": {
+        "b": {
+          "mode": "seq",
+          "lines": 5000,
+          "name": "huge.txt"
+        }
+      }
+    },
+    {
+      "name": "head_n_minus_10",
+      "hook": "bash",
+      "why": "'all but last 10' is the whole file",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "session_id": "head_n_minus_10",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "command": "head -n -10 @FIX:b@"
+        }
+      },
+      "expect": {
+        "decision": "deny",
+        "reason_code": "over_threshold"
+      },
+      "fixtures": {
+        "b": {
+          "mode": "seq",
+          "lines": 5000,
+          "name": "huge.txt"
+        }
+      }
+    },
+    {
+      "name": "head_c_bytes",
+      "hook": "bash",
+      "why": "byte-bounded",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "session_id": "head_c_bytes",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "command": "head -c 1000 @FIX:b@"
+        }
+      },
+      "expect": {
+        "decision": "none",
+        "reason_code": "under_threshold"
+      },
+      "fixtures": {
+        "b": {
+          "mode": "seq",
+          "lines": 5000,
+          "name": "huge.txt"
+        }
+      }
+    },
+    {
+      "name": "tail_bounded",
+      "hook": "bash",
+      "why": "",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "session_id": "tail_bounded",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "command": "tail -100 @FIX:b@"
+        }
+      },
+      "expect": {
+        "decision": "none",
+        "reason_code": "under_threshold"
+      },
+      "fixtures": {
+        "b": {
+          "mode": "seq",
+          "lines": 5000,
+          "name": "huge.txt"
+        }
+      }
+    },
+    {
+      "name": "tail_from_line_1",
+      "hook": "bash",
+      "why": "+1 means the whole file",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "session_id": "tail_from_line_1",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "command": "tail -n +1 @FIX:b@"
+        }
+      },
+      "expect": {
+        "decision": "deny",
+        "reason_code": "over_threshold"
+      },
+      "fixtures": {
+        "b": {
+          "mode": "seq",
+          "lines": 5000,
+          "name": "huge.txt"
+        }
+      }
+    },
+    {
+      "name": "tail_from_line_4900",
+      "hook": "bash",
+      "why": "only 101 lines of 5000",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "session_id": "tail_from_line_4900",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "command": "tail -n +4900 @FIX:b@"
+        }
+      },
+      "expect": {
+        "decision": "none",
+        "reason_code": "under_threshold"
+      },
+      "fixtures": {
+        "b": {
+          "mode": "seq",
+          "lines": 5000,
+          "name": "huge.txt"
+        }
+      }
+    },
+    {
+      "name": "tail_follow",
+      "hook": "bash",
+      "why": "never block a follow",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "session_id": "tail_follow",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "command": "tail -f @FIX:b@"
+        }
+      },
+      "expect": {
+        "decision": "none",
+        "reason_code": "not_a_reader_command"
+      },
+      "fixtures": {
+        "b": {
+          "mode": "seq",
+          "lines": 5000,
+          "name": "huge.txt"
+        }
+      }
+    },
+    {
+      "name": "tail_follow_F",
+      "hook": "bash",
+      "why": "",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "session_id": "tail_follow_F",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "command": "tail -F @FIX:b@"
+        }
+      },
+      "expect": {
+        "decision": "none",
+        "reason_code": "not_a_reader_command"
+      },
+      "fixtures": {
+        "b": {
+          "mode": "seq",
+          "lines": 5000,
+          "name": "huge.txt"
+        }
+      }
+    },
+    {
+      "name": "cat_n_flag",
+      "hook": "bash",
+      "why": "-n is a display flag for cat, not a count",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "session_id": "cat_n_flag",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "command": "cat -n @FIX:b@"
+        }
+      },
+      "expect": {
+        "decision": "deny",
+        "reason_code": "over_threshold"
+      },
+      "fixtures": {
+        "b": {
+          "mode": "seq",
+          "lines": 500,
+          "name": "big.txt"
+        }
+      }
+    },
+    {
+      "name": "cat_bundled_flags",
+      "hook": "bash",
+      "why": "",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "session_id": "cat_bundled_flags",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "command": "cat -vet @FIX:b@"
+        }
+      },
+      "expect": {
+        "decision": "deny",
+        "reason_code": "over_threshold"
+      },
+      "fixtures": {
+        "b": {
+          "mode": "seq",
+          "lines": 500,
+          "name": "big.txt"
+        }
+      }
+    },
+    {
+      "name": "cat_long_flag",
+      "hook": "bash",
+      "why": "",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "session_id": "cat_long_flag",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "command": "cat --number @FIX:b@"
+        }
+      },
+      "expect": {
+        "decision": "deny",
+        "reason_code": "over_threshold"
+      },
+      "fixtures": {
+        "b": {
+          "mode": "seq",
+          "lines": 500,
+          "name": "big.txt"
+        }
+      }
+    },
+    {
+      "name": "cat_double_dash",
+      "hook": "bash",
+      "why": "",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "session_id": "cat_double_dash",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "command": "cat -- @FIX:b@"
+        }
+      },
+      "expect": {
+        "decision": "deny",
+        "reason_code": "over_threshold"
+      },
+      "fixtures": {
+        "b": {
+          "mode": "seq",
+          "lines": 500,
+          "name": "big.txt"
+        }
+      }
+    },
+    {
+      "name": "cat_two_large",
+      "hook": "bash",
+      "why": "",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "session_id": "cat_two_large",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "command": "cat @FIX:a@ @FIX:b@"
+        }
+      },
+      "expect": {
+        "decision": "deny",
+        "reason_code": "over_threshold"
+      },
+      "fixtures": {
+        "a": {
+          "mode": "seq",
+          "lines": 500,
+          "name": "a.txt"
+        },
+        "b": {
+          "mode": "seq",
+          "lines": 500,
+          "name": "big.txt"
+        }
+      }
+    },
+    {
+      "name": "cat_small_then_large",
+      "hook": "bash",
+      "why": "any operand over threshold",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "session_id": "cat_small_then_large",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "command": "cat @FIX:a@ @FIX:b@"
+        }
+      },
+      "expect": {
+        "decision": "deny",
+        "reason_code": "over_threshold"
+      },
+      "fixtures": {
+        "a": {
+          "mode": "seq",
+          "lines": 10,
+          "name": "a.txt"
+        },
+        "b": {
+          "mode": "seq",
+          "lines": 500,
+          "name": "big.txt"
+        }
+      }
+    },
+    {
+      "name": "cat_two_small",
+      "hook": "bash",
+      "why": "",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "session_id": "cat_two_small",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "command": "cat @FIX:a@ @FIX:b@"
+        }
+      },
+      "expect": {
+        "decision": "none",
+        "reason_code": "under_threshold"
+      },
+      "fixtures": {
+        "a": {
+          "mode": "seq",
+          "lines": 10,
+          "name": "a.txt"
+        },
+        "b": {
+          "mode": "seq",
+          "lines": 10,
+          "name": "big.txt"
+        }
+      }
+    },
+    {
+      "name": "cat_large_and_missing",
+      "hook": "bash",
+      "why": "",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "session_id": "cat_large_and_missing",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "command": "cat @FIX:b@ @FIX@/nope.txt"
+        }
+      },
+      "expect": {
+        "decision": "deny",
+        "reason_code": "over_threshold"
+      },
+      "fixtures": {
+        "b": {
+          "mode": "seq",
+          "lines": 500,
+          "name": "big.txt"
+        }
+      }
+    },
+    {
+      "name": "piped_to_grep",
+      "hook": "bash",
+      "why": "output goes to grep, not the model",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "session_id": "piped_to_grep",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "command": "cat @FIX:b@ | grep x"
+        }
+      },
+      "expect": {
+        "decision": "none",
+        "reason_code": "piped"
+      },
+      "fixtures": {
+        "b": {
+          "mode": "seq",
+          "lines": 500,
+          "name": "big.txt"
+        }
+      }
+    },
+    {
+      "name": "piped_to_head",
+      "hook": "bash",
+      "why": "",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "session_id": "piped_to_head",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "command": "cat @FIX:b@ | head -5"
+        }
+      },
+      "expect": {
+        "decision": "none",
+        "reason_code": "piped"
+      },
+      "fixtures": {
+        "b": {
+          "mode": "seq",
+          "lines": 500,
+          "name": "big.txt"
+        }
+      }
+    },
+    {
+      "name": "redirect_out",
+      "hook": "bash",
+      "why": "",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "session_id": "redirect_out",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "command": "cat @FIX:b@ > /tmp/o"
+        }
+      },
+      "expect": {
+        "decision": "none",
+        "reason_code": "redirected"
+      },
+      "fixtures": {
+        "b": {
+          "mode": "seq",
+          "lines": 500,
+          "name": "big.txt"
+        }
+      }
+    },
+    {
+      "name": "redirect_append",
+      "hook": "bash",
+      "why": "",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "session_id": "redirect_append",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "command": "cat @FIX:b@ >> /tmp/o"
+        }
+      },
+      "expect": {
+        "decision": "none",
+        "reason_code": "redirected"
+      },
+      "fixtures": {
+        "b": {
+          "mode": "seq",
+          "lines": 500,
+          "name": "big.txt"
+        }
+      }
+    },
+    {
+      "name": "redirect_stdout_fd",
+      "hook": "bash",
+      "why": "",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "session_id": "redirect_stdout_fd",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "command": "cat @FIX:b@ 1>/dev/null"
+        }
+      },
+      "expect": {
+        "decision": "none",
+        "reason_code": "redirected"
+      },
+      "fixtures": {
+        "b": {
+          "mode": "seq",
+          "lines": 500,
+          "name": "big.txt"
+        }
+      }
+    },
+    {
+      "name": "redirect_both",
+      "hook": "bash",
+      "why": "",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "session_id": "redirect_both",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "command": "cat @FIX:b@ &> /dev/null"
+        }
+      },
+      "expect": {
+        "decision": "none",
+        "reason_code": "redirected"
+      },
+      "fixtures": {
+        "b": {
+          "mode": "seq",
+          "lines": 500,
+          "name": "big.txt"
+        }
+      }
+    },
+    {
+      "name": "redirect_stderr_only",
+      "hook": "bash",
+      "why": "only stderr is redirected; stdout still reaches the model",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "session_id": "redirect_stderr_only",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "command": "cat @FIX:b@ 2>/dev/null"
+        }
+      },
+      "expect": {
+        "decision": "deny",
+        "reason_code": "over_threshold"
+      },
+      "fixtures": {
+        "b": {
+          "mode": "seq",
+          "lines": 500,
+          "name": "big.txt"
+        }
+      }
+    },
+    {
+      "name": "heredoc",
+      "hook": "bash",
+      "why": "",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "session_id": "heredoc",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "command": "cat <<EOF\nhello\nEOF"
+        }
+      },
+      "expect": {
+        "decision": "none",
+        "reason_code": "heredoc"
+      }
+    },
+    {
+      "name": "heredoc_body_not_rescanned",
+      "hook": "bash",
+      "why": "the body is data, not a command",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "session_id": "heredoc_body_not_rescanned",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "command": "cat <<'EOF'\ncat big.txt\nEOF"
+        }
+      },
+      "expect": {
+        "decision": "none",
+        "reason_code": "heredoc"
+      },
+      "fixtures": {
+        "b": {
+          "mode": "seq",
+          "lines": 500,
+          "name": "big.txt"
+        }
+      }
+    },
+    {
+      "name": "herestring",
+      "hook": "bash",
+      "why": "",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "session_id": "herestring",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "command": "cat <<< \"$x\""
+        }
+      },
+      "expect": {
+        "decision": "none",
+        "reason_code": "heredoc"
+      }
+    },
+    {
+      "name": "stdin_redirect",
+      "hook": "bash",
+      "why": "< still dumps the file to stdout",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "session_id": "stdin_redirect",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "command": "cat < @FIX:b@"
+        }
+      },
+      "expect": {
+        "decision": "deny",
+        "reason_code": "over_threshold"
+      },
+      "fixtures": {
+        "b": {
+          "mode": "seq",
+          "lines": 500,
+          "name": "big.txt"
+        }
+      }
+    },
+    {
+      "name": "cat_no_args",
+      "hook": "bash",
+      "why": "",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "session_id": "cat_no_args",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "command": "cat"
+        }
+      },
+      "expect": {
+        "decision": "none",
+        "reason_code": "no_file_operand"
+      }
+    },
+    {
+      "name": "quoted_path_with_spaces",
+      "hook": "bash",
+      "why": "",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "session_id": "quoted_path_with_spaces",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "command": "cat \"@FIX:b@\""
+        }
+      },
+      "expect": {
+        "decision": "deny",
+        "reason_code": "over_threshold"
+      },
+      "fixtures": {
+        "b": {
+          "mode": "seq",
+          "lines": 500,
+          "name": "a file.txt"
+        }
+      }
+    },
+    {
+      "name": "single_quoted_path",
+      "hook": "bash",
+      "why": "",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "session_id": "single_quoted_path",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "command": "cat '@FIX:b@'"
+        }
+      },
+      "expect": {
+        "decision": "deny",
+        "reason_code": "over_threshold"
+      },
+      "fixtures": {
+        "b": {
+          "mode": "seq",
+          "lines": 500,
+          "name": "a file.txt"
+        }
+      }
+    },
+    {
+      "name": "variable_path",
+      "hook": "bash",
+      "why": "cannot resolve statically; fail open",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "session_id": "variable_path",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "command": "cat $VAR"
+        }
+      },
+      "expect": {
+        "decision": "none",
+        "reason_code": "unresolvable_arg"
+      }
+    },
+    {
+      "name": "braced_variable",
+      "hook": "bash",
+      "why": "",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "session_id": "braced_variable",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "command": "cat \"${FILE}\""
+        }
+      },
+      "expect": {
+        "decision": "none",
+        "reason_code": "unresolvable_arg"
+      }
+    },
+    {
+      "name": "glob_path",
+      "hook": "bash",
+      "why": "never glob-expand inside a hook",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "session_id": "glob_path",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "command": "cat *.txt"
+        }
+      },
+      "expect": {
+        "decision": "none",
+        "reason_code": "unresolvable_arg"
+      }
+    },
+    {
+      "name": "command_substitution",
+      "hook": "bash",
+      "why": "",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "session_id": "command_substitution",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "command": "cat $(ls)"
+        }
+      },
+      "expect": {
+        "decision": "none",
+        "reason_code": "unresolvable_arg"
+      }
+    },
+    {
+      "name": "backtick_substitution",
+      "hook": "bash",
+      "why": "",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "session_id": "backtick_substitution",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "command": "cat `ls`"
+        }
+      },
+      "expect": {
+        "decision": "none",
+        "reason_code": "unresolvable_arg"
+      }
+    },
+    {
+      "name": "cd_then_cat",
+      "hook": "bash",
+      "why": "cd must be tracked",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "session_id": "cd_then_cat",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "command": "cd sub && cat big.txt"
+        }
+      },
+      "expect": {
+        "decision": "deny",
+        "reason_code": "over_threshold"
+      },
+      "fixtures": {
+        "b": {
+          "mode": "seq",
+          "lines": 500,
+          "name": "sub/big.txt"
+        }
+      }
+    },
+    {
+      "name": "semicolon_then_cat",
+      "hook": "bash",
+      "why": "",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "session_id": "semicolon_then_cat",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "command": "echo start; cat @FIX:b@"
+        }
+      },
+      "expect": {
+        "decision": "deny",
+        "reason_code": "over_threshold"
+      },
+      "fixtures": {
+        "b": {
+          "mode": "seq",
+          "lines": 500,
+          "name": "big.txt"
+        }
+      }
+    },
+    {
+      "name": "cat_then_and",
+      "hook": "bash",
+      "why": "",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "session_id": "cat_then_and",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "command": "cat @FIX:b@ && echo done"
+        }
+      },
+      "expect": {
+        "decision": "deny",
+        "reason_code": "over_threshold"
+      },
+      "fixtures": {
+        "b": {
+          "mode": "seq",
+          "lines": 500,
+          "name": "big.txt"
+        }
+      }
+    },
+    {
+      "name": "cd_nonexistent",
+      "hook": "bash",
+      "why": "",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "session_id": "cd_nonexistent",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "command": "cd /nonexistent-dir && cat big.txt"
+        }
+      },
+      "expect": {
+        "decision": "none",
+        "reason_code": "file_missing"
+      }
+    },
+    {
+      "name": "absolute_binary",
+      "hook": "bash",
+      "why": "",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "session_id": "absolute_binary",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "command": "/bin/cat @FIX:b@"
+        }
+      },
+      "expect": {
+        "decision": "deny",
+        "reason_code": "over_threshold"
+      },
+      "fixtures": {
+        "b": {
+          "mode": "seq",
+          "lines": 500,
+          "name": "big.txt"
+        }
+      }
+    },
+    {
+      "name": "sudo_prefix",
+      "hook": "bash",
+      "why": "",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "session_id": "sudo_prefix",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "command": "sudo cat @FIX:b@"
+        }
+      },
+      "expect": {
+        "decision": "deny",
+        "reason_code": "over_threshold"
+      },
+      "fixtures": {
+        "b": {
+          "mode": "seq",
+          "lines": 500,
+          "name": "big.txt"
+        }
+      }
+    },
+    {
+      "name": "env_prefix",
+      "hook": "bash",
+      "why": "",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "session_id": "env_prefix",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "command": "env cat @FIX:b@"
+        }
+      },
+      "expect": {
+        "decision": "deny",
+        "reason_code": "over_threshold"
+      },
+      "fixtures": {
+        "b": {
+          "mode": "seq",
+          "lines": 500,
+          "name": "big.txt"
+        }
+      }
+    },
+    {
+      "name": "env_assignment_prefix",
+      "hook": "bash",
+      "why": "",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "session_id": "env_assignment_prefix",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "command": "FOO=1 BAR=2 cat @FIX:b@"
+        }
+      },
+      "expect": {
+        "decision": "deny",
+        "reason_code": "over_threshold"
+      },
+      "fixtures": {
+        "b": {
+          "mode": "seq",
+          "lines": 500,
+          "name": "big.txt"
+        }
+      }
+    },
+    {
+      "name": "timeout_prefix",
+      "hook": "bash",
+      "why": "",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "session_id": "timeout_prefix",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "command": "timeout 5 cat @FIX:b@"
+        }
+      },
+      "expect": {
+        "decision": "deny",
+        "reason_code": "over_threshold"
+      },
+      "fixtures": {
+        "b": {
+          "mode": "seq",
+          "lines": 500,
+          "name": "big.txt"
+        }
+      }
+    },
+    {
+      "name": "nice_prefix",
+      "hook": "bash",
+      "why": "",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "session_id": "nice_prefix",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "command": "nice -n 10 cat @FIX:b@"
+        }
+      },
+      "expect": {
+        "decision": "deny",
+        "reason_code": "over_threshold"
+      },
+      "fixtures": {
+        "b": {
+          "mode": "seq",
+          "lines": 500,
+          "name": "big.txt"
+        }
+      }
+    },
+    {
+      "name": "prefix_match_must_not_fire",
+      "hook": "bash",
+      "why": "'cat' is a prefix of 'catfish'",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "session_id": "prefix_match_must_not_fire",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "command": "catfish @FIX:b@"
+        }
+      },
+      "expect": {
+        "decision": "none",
+        "reason_code": "not_a_reader_command"
+      },
+      "fixtures": {
+        "b": {
+          "mode": "seq",
+          "lines": 500,
+          "name": "big.txt"
+        }
+      }
+    },
+    {
+      "name": "underscore_suffix",
+      "hook": "bash",
+      "why": "",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "session_id": "underscore_suffix",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "command": "cat_file @FIX:b@"
+        }
+      },
+      "expect": {
+        "decision": "none",
+        "reason_code": "not_a_reader_command"
+      },
+      "fixtures": {
+        "b": {
+          "mode": "seq",
+          "lines": 500,
+          "name": "big.txt"
+        }
+      }
+    },
+    {
+      "name": "grep_allowed",
+      "hook": "bash",
+      "why": "grep is the right tool; blocking it would harm more than it helps",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "session_id": "grep_allowed",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "command": "grep pattern @FIX:b@"
+        }
+      },
+      "expect": {
+        "decision": "none",
+        "reason_code": "not_a_reader_command"
+      },
+      "fixtures": {
+        "b": {
+          "mode": "seq",
+          "lines": 500,
+          "name": "big.txt"
+        }
+      }
+    },
+    {
+      "name": "grep_context_bypass",
+      "hook": "bash",
+      "why": "known bypass, deliberately not blocked",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "session_id": "grep_context_bypass",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "command": "grep -A 99999 x @FIX:b@"
+        }
+      },
+      "expect": {
+        "decision": "none",
+        "reason_code": "not_a_reader_command"
+      },
+      "fixtures": {
+        "b": {
+          "mode": "seq",
+          "lines": 500,
+          "name": "big.txt"
+        }
+      }
+    },
+    {
+      "name": "sed_range",
+      "hook": "bash",
+      "why": "",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "session_id": "sed_range",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "command": "sed -n '1,50p' @FIX:b@"
+        }
+      },
+      "expect": {
+        "decision": "none",
+        "reason_code": "not_a_reader_command"
+      },
+      "fixtures": {
+        "b": {
+          "mode": "seq",
+          "lines": 500,
+          "name": "big.txt"
+        }
+      }
+    },
+    {
+      "name": "awk_print",
+      "hook": "bash",
+      "why": "known gap",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "session_id": "awk_print",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "command": "awk '{print}' @FIX:b@"
+        }
+      },
+      "expect": {
+        "decision": "none",
+        "reason_code": "not_a_reader_command"
+      },
+      "fixtures": {
+        "b": {
+          "mode": "seq",
+          "lines": 500,
+          "name": "big.txt"
+        }
+      }
+    },
+    {
+      "name": "python_read",
+      "hook": "bash",
+      "why": "known gap; the report counts these instead",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "session_id": "python_read",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "command": "python3 -c \"print(open('big.txt').read())\""
+        }
+      },
+      "expect": {
+        "decision": "none",
+        "reason_code": "not_a_reader_command"
+      },
+      "fixtures": {
+        "b": {
+          "mode": "seq",
+          "lines": 500,
+          "name": "big.txt"
+        }
+      }
+    },
+    {
+      "name": "git_show",
+      "hook": "bash",
+      "why": "known gap",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "session_id": "git_show",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "command": "git show HEAD:big.java"
+        }
+      },
+      "expect": {
+        "decision": "none",
+        "reason_code": "not_a_reader_command"
+      }
+    },
+    {
+      "name": "bash_c_wrapper",
+      "hook": "bash",
+      "why": "known gap",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "session_id": "bash_c_wrapper",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "command": "bash -c \"cat @FIX:b@\""
+        }
+      },
+      "expect": {
+        "decision": "none",
+        "reason_code": "not_a_reader_command"
+      },
+      "fixtures": {
+        "b": {
+          "mode": "seq",
+          "lines": 500,
+          "name": "big.txt"
+        }
+      }
+    },
+    {
+      "name": "wc_allowed",
+      "hook": "bash",
+      "why": "",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "session_id": "wc_allowed",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "command": "wc -l @FIX:b@"
+        }
+      },
+      "expect": {
+        "decision": "none",
+        "reason_code": "not_a_reader_command"
+      },
+      "fixtures": {
+        "b": {
+          "mode": "seq",
+          "lines": 500,
+          "name": "big.txt"
+        }
+      }
+    },
+    {
+      "name": "dev_null",
+      "hook": "bash",
+      "why": "",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "session_id": "dev_null",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "command": "cat /dev/null"
+        }
+      },
+      "expect": {
+        "decision": "none",
+        "reason_code": "not_regular_file"
+      }
+    },
+    {
+      "name": "dev_zero",
+      "hook": "bash",
+      "why": "wc -l /dev/zero never returns; the -f guard is load-bearing",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "session_id": "dev_zero",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "command": "cat /dev/zero"
+        }
+      },
+      "expect": {
+        "decision": "none",
+        "reason_code": "not_regular_file",
+        "max_latency_ms": 800
+      }
+    },
+    {
+      "name": "proc_file",
+      "hook": "bash",
+      "why": "procfs reports size 0, so it reads as an empty regular file",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "session_id": "proc_file",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "command": "cat /proc/self/maps"
+        }
+      },
+      "expect": {
+        "decision": "none",
+        "reason_code": "under_threshold"
+      }
+    },
+    {
+      "name": "cat_directory",
+      "hook": "bash",
+      "why": "",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "session_id": "cat_directory",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "command": "cat @FIX:d@"
+        }
+      },
+      "expect": {
+        "decision": "none",
+        "reason_code": "is_dir"
+      },
+      "fixtures": {
+        "d": {
+          "mode": "dir",
+          "name": "adir"
+        }
+      }
+    },
+    {
+      "name": "cat_binary",
+      "hook": "bash",
+      "why": "",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "session_id": "cat_binary",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "command": "cat @FIX:b@"
+        }
+      },
+      "expect": {
+        "decision": "none",
+        "reason_code": "binary"
+      },
+      "fixtures": {
+        "b": {
+          "mode": "binary",
+          "bytes": 300000,
+          "name": "blob.dat"
+        }
+      }
+    },
+    {
+      "name": "cat_missing",
+      "hook": "bash",
+      "why": "",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "session_id": "cat_missing",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "command": "cat @FIX@/nope.txt"
+        }
+      },
+      "expect": {
+        "decision": "none",
+        "reason_code": "file_missing"
+      }
+    },
+    {
+      "name": "cat_empty",
+      "hook": "bash",
+      "why": "",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "session_id": "cat_empty",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "command": "cat @FIX:b@"
+        }
+      },
+      "expect": {
+        "decision": "none",
+        "reason_code": "under_threshold"
+      },
+      "fixtures": {
+        "b": {
+          "mode": "empty",
+          "name": "e.txt"
+        }
+      }
+    },
+    {
+      "name": "cat_symlink_to_large",
+      "hook": "bash",
+      "why": "",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "session_id": "cat_symlink_to_large",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "command": "cat @FIX:l@"
+        }
+      },
+      "expect": {
+        "decision": "deny",
+        "reason_code": "over_threshold"
+      },
+      "fixtures": {
+        "b": {
+          "mode": "seq",
+          "lines": 500,
+          "name": "big.txt"
+        },
+        "l": {
+          "mode": "symlink",
+          "target": "big.txt",
+          "name": "link.txt"
+        }
+      }
+    },
+    {
+      "name": "kill_switch",
+      "hook": "bash",
+      "why": "",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "session_id": "kill_switch",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "command": "cat @FIX:b@"
+        }
+      },
+      "expect": {
+        "decision": "none",
+        "reason_code": "disabled"
+      },
+      "fixtures": {
+        "b": {
+          "mode": "seq",
+          "lines": 500,
+          "name": "big.txt"
+        }
+      },
+      "env": {
+        "SHUNT_DISABLE": "1"
+      }
+    },
+    {
+      "name": "threshold_override",
+      "hook": "bash",
+      "why": "",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "session_id": "threshold_override",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "command": "cat @FIX:b@"
+        }
+      },
+      "expect": {
+        "decision": "none",
+        "reason_code": "under_threshold"
+      },
+      "fixtures": {
+        "b": {
+          "mode": "seq",
+          "lines": 500,
+          "name": "big.txt"
+        }
+      },
+      "env": {
+        "SHUNT_MIN_LINES": "1000"
+      }
+    },
+    {
+      "name": "empty_command",
+      "hook": "bash",
+      "why": "",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "session_id": "empty_command",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "command": ""
+        }
+      },
+      "expect": {
+        "decision": "none",
+        "reason_code": "not_a_reader_command"
+      }
+    },
+    {
+      "name": "wrong_tool_name",
+      "hook": "bash",
+      "why": "",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Write",
+        "session_id": "wrong_tool_name",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "command": "cat @FIX:b@"
+        }
+      },
+      "expect": {
+        "decision": "none",
+        "reason_code": "not_a_reader_command"
+      },
+      "fixtures": {
+        "b": {
+          "mode": "seq",
+          "lines": 500,
+          "name": "big.txt"
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,894 @@
+{
+  "cases": [
+    {
+      "name": "under_threshold",
+      "hook": "read",
+      "why": "100 lines",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Read",
+        "session_id": "under_threshold",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "file_path": "@FIX:f@"
+        }
+      },
+      "expect": {
+        "decision": "none",
+        "reason_code": "under_threshold"
+      },
+      "fixtures": {
+        "f": {
+          "mode": "seq",
+          "lines": 100
+        }
+      }
+    },
+    {
+      "name": "exactly_at_threshold",
+      "hook": "read",
+      "why": "350 lines is not over 350",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Read",
+        "session_id": "exactly_at_threshold",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "file_path": "@FIX:f@"
+        }
+      },
+      "expect": {
+        "decision": "none",
+        "reason_code": "under_threshold"
+      },
+      "fixtures": {
+        "f": {
+          "mode": "seq",
+          "lines": 350
+        }
+      }
+    },
+    {
+      "name": "threshold_plus_one",
+      "hook": "read",
+      "why": "351 lines trips it",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Read",
+        "session_id": "threshold_plus_one",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "file_path": "@FIX:f@"
+        }
+      },
+      "expect": {
+        "decision": "deny",
+        "reason_code": "over_threshold",
+        "reason_matches": "bulk-reader"
+      },
+      "fixtures": {
+        "f": {
+          "mode": "seq",
+          "lines": 351
+        }
+      }
+    },
+    {
+      "name": "large_file",
+      "hook": "read",
+      "why": "500 lines",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Read",
+        "session_id": "large_file",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "file_path": "@FIX:f@"
+        }
+      },
+      "expect": {
+        "decision": "deny",
+        "reason_code": "over_threshold"
+      },
+      "fixtures": {
+        "f": {
+          "mode": "seq",
+          "lines": 500
+        }
+      }
+    },
+    {
+      "name": "very_large_file",
+      "hook": "read",
+      "why": "5000 lines",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Read",
+        "session_id": "very_large_file",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "file_path": "@FIX:f@"
+        }
+      },
+      "expect": {
+        "decision": "deny",
+        "reason_code": "over_threshold"
+      },
+      "fixtures": {
+        "f": {
+          "mode": "seq",
+          "lines": 5000
+        }
+      }
+    },
+    {
+      "name": "empty_file",
+      "hook": "read",
+      "why": "0 lines",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Read",
+        "session_id": "empty_file",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "file_path": "@FIX:f@"
+        }
+      },
+      "expect": {
+        "decision": "none",
+        "reason_code": "under_threshold"
+      },
+      "fixtures": {
+        "f": {
+          "mode": "empty"
+        }
+      }
+    },
+    {
+      "name": "no_trailing_newline_350",
+      "hook": "read",
+      "why": "wc -l says 349; must count 350",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Read",
+        "session_id": "no_trailing_newline_350",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "file_path": "@FIX:f@"
+        }
+      },
+      "expect": {
+        "decision": "none",
+        "reason_code": "under_threshold"
+      },
+      "fixtures": {
+        "f": {
+          "mode": "nonewline",
+          "lines": 350
+        }
+      }
+    },
+    {
+      "name": "no_trailing_newline_351",
+      "hook": "read",
+      "why": "off-by-one must not hide a deny",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Read",
+        "session_id": "no_trailing_newline_351",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "file_path": "@FIX:f@"
+        }
+      },
+      "expect": {
+        "decision": "deny",
+        "reason_code": "over_threshold"
+      },
+      "fixtures": {
+        "f": {
+          "mode": "nonewline",
+          "lines": 351
+        }
+      }
+    },
+    {
+      "name": "targeted_offset_and_limit",
+      "hook": "read",
+      "why": "windowed read is always allowed",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Read",
+        "session_id": "targeted_offset_and_limit",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "file_path": "@FIX:f@",
+          "offset": 100,
+          "limit": 50
+        }
+      },
+      "expect": {
+        "decision": "none",
+        "reason_code": "targeted_read"
+      },
+      "fixtures": {
+        "f": {
+          "mode": "seq",
+          "lines": 5000
+        }
+      }
+    },
+    {
+      "name": "targeted_limit_only",
+      "hook": "read",
+      "why": "limit under threshold",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Read",
+        "session_id": "targeted_limit_only",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "file_path": "@FIX:f@",
+          "limit": 50
+        }
+      },
+      "expect": {
+        "decision": "none",
+        "reason_code": "targeted_read"
+      },
+      "fixtures": {
+        "f": {
+          "mode": "seq",
+          "lines": 5000
+        }
+      }
+    },
+    {
+      "name": "targeted_offset_only",
+      "hook": "read",
+      "why": "offset alone signals intent",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Read",
+        "session_id": "targeted_offset_only",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "file_path": "@FIX:f@",
+          "offset": 4900
+        }
+      },
+      "expect": {
+        "decision": "none",
+        "reason_code": "targeted_read"
+      },
+      "fixtures": {
+        "f": {
+          "mode": "seq",
+          "lines": 5000
+        }
+      }
+    },
+    {
+      "name": "limit_at_threshold",
+      "hook": "read",
+      "why": "limit == threshold is still targeted",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Read",
+        "session_id": "limit_at_threshold",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "file_path": "@FIX:f@",
+          "limit": 350
+        }
+      },
+      "expect": {
+        "decision": "none",
+        "reason_code": "targeted_read"
+      },
+      "fixtures": {
+        "f": {
+          "mode": "seq",
+          "lines": 5000
+        }
+      }
+    },
+    {
+      "name": "oversized_limit",
+      "hook": "read",
+      "why": "a limit above the threshold is not a windowed read",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Read",
+        "session_id": "oversized_limit",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "file_path": "@FIX:f@",
+          "limit": 5000
+        }
+      },
+      "expect": {
+        "decision": "deny",
+        "reason_code": "over_threshold"
+      },
+      "fixtures": {
+        "f": {
+          "mode": "seq",
+          "lines": 5000
+        }
+      }
+    },
+    {
+      "name": "missing_file",
+      "hook": "read",
+      "why": "let Read raise its own error",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Read",
+        "session_id": "missing_file",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "file_path": "@FIX@/nope.txt"
+        }
+      },
+      "expect": {
+        "decision": "none",
+        "reason_code": "file_missing"
+      }
+    },
+    {
+      "name": "empty_file_path",
+      "hook": "read",
+      "why": "",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Read",
+        "session_id": "empty_file_path",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "file_path": ""
+        }
+      },
+      "expect": {
+        "decision": "none",
+        "reason_code": "file_missing"
+      }
+    },
+    {
+      "name": "missing_file_path_field",
+      "hook": "read",
+      "why": "",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Read",
+        "session_id": "missing_file_path_field",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {}
+      },
+      "expect": {
+        "decision": "none",
+        "reason_code": "file_missing"
+      }
+    },
+    {
+      "name": "directory",
+      "hook": "read",
+      "why": "",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Read",
+        "session_id": "directory",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "file_path": "@FIX:d@"
+        }
+      },
+      "expect": {
+        "decision": "none",
+        "reason_code": "is_dir"
+      },
+      "fixtures": {
+        "d": {
+          "mode": "dir",
+          "name": "adir"
+        }
+      }
+    },
+    {
+      "name": "symlink_to_large",
+      "hook": "read",
+      "why": "symlinks must resolve, not be waved through",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Read",
+        "session_id": "symlink_to_large",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "file_path": "@FIX:l@"
+        }
+      },
+      "expect": {
+        "decision": "deny",
+        "reason_code": "over_threshold"
+      },
+      "fixtures": {
+        "big": {
+          "mode": "seq",
+          "lines": 500,
+          "name": "big.txt"
+        },
+        "l": {
+          "mode": "symlink",
+          "target": "big.txt",
+          "name": "link.txt"
+        }
+      }
+    },
+    {
+      "name": "dangling_symlink",
+      "hook": "read",
+      "why": "",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Read",
+        "session_id": "dangling_symlink",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "file_path": "@FIX:l@"
+        }
+      },
+      "expect": {
+        "decision": "none",
+        "reason_code": "file_missing"
+      },
+      "fixtures": {
+        "l": {
+          "mode": "dangling",
+          "name": "link.txt"
+        }
+      }
+    },
+    {
+      "name": "unreadable_file",
+      "hook": "read",
+      "why": "chmod 000 must not wedge the hook",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Read",
+        "session_id": "unreadable_file",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "file_path": "@FIX:f@"
+        }
+      },
+      "expect": {
+        "decision": "none",
+        "reason_code": "unreadable"
+      },
+      "fixtures": {
+        "f": {
+          "mode": "unreadable",
+          "lines": 500
+        }
+      }
+    },
+    {
+      "name": "binary_file",
+      "hook": "read",
+      "why": "summarising a binary is pointless",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Read",
+        "session_id": "binary_file",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "file_path": "@FIX:f@"
+        }
+      },
+      "expect": {
+        "decision": "none",
+        "reason_code": "binary"
+      },
+      "fixtures": {
+        "f": {
+          "mode": "binary",
+          "bytes": 300000,
+          "name": "blob.dat"
+        }
+      }
+    },
+    {
+      "name": "image_extension_exempt",
+      "hook": "read",
+      "why": "",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Read",
+        "session_id": "image_extension_exempt",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "file_path": "@FIX:f@"
+        }
+      },
+      "expect": {
+        "decision": "none",
+        "reason_code": "extension_exempt"
+      },
+      "fixtures": {
+        "f": {
+          "mode": "seq",
+          "lines": 500,
+          "name": "pic.png"
+        }
+      }
+    },
+    {
+      "name": "minified_one_line",
+      "hook": "read",
+      "why": "1 line, 2MB: line count alone would miss this entirely",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Read",
+        "session_id": "minified_one_line",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "file_path": "@FIX:f@"
+        }
+      },
+      "expect": {
+        "decision": "deny",
+        "reason_code": "over_threshold"
+      },
+      "fixtures": {
+        "f": {
+          "mode": "minified",
+          "bytes": 2000000,
+          "name": "bundle.min.js"
+        }
+      }
+    },
+    {
+      "name": "many_lines_few_bytes",
+      "hook": "read",
+      "why": "400 lines but 2KB: the byte floor stops a losing round-trip",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Read",
+        "session_id": "many_lines_few_bytes",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "file_path": "@FIX:f@"
+        }
+      },
+      "expect": {
+        "decision": "none",
+        "reason_code": "under_byte_floor"
+      },
+      "fixtures": {
+        "f": {
+          "mode": "tiny",
+          "lines": 400
+        }
+      }
+    },
+    {
+      "name": "path_with_spaces",
+      "hook": "read",
+      "why": "",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Read",
+        "session_id": "path_with_spaces",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "file_path": "@FIX:f@"
+        }
+      },
+      "expect": {
+        "decision": "deny",
+        "reason_code": "over_threshold"
+      },
+      "fixtures": {
+        "f": {
+          "mode": "seq",
+          "lines": 500,
+          "name": "a file with spaces.txt"
+        }
+      }
+    },
+    {
+      "name": "path_with_quotes_and_dollar",
+      "hook": "read",
+      "why": "the log line must stay valid JSON",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Read",
+        "session_id": "path_with_quotes_and_dollar",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "file_path": "@FIX:f@"
+        }
+      },
+      "expect": {
+        "decision": "deny",
+        "reason_code": "over_threshold"
+      },
+      "fixtures": {
+        "f": {
+          "mode": "seq",
+          "lines": 500,
+          "name": "it's $HOME \"x\".txt"
+        }
+      }
+    },
+    {
+      "name": "relative_path_uses_cwd",
+      "hook": "read",
+      "why": "",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Read",
+        "session_id": "relative_path_uses_cwd",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "file_path": "sub/big.txt"
+        }
+      },
+      "expect": {
+        "decision": "deny",
+        "reason_code": "over_threshold"
+      },
+      "fixtures": {
+        "f": {
+          "mode": "seq",
+          "lines": 500,
+          "name": "sub/big.txt"
+        }
+      }
+    },
+    {
+      "name": "env_override_lower",
+      "hook": "read",
+      "why": "",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Read",
+        "session_id": "env_override_lower",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "file_path": "@FIX:f@"
+        }
+      },
+      "expect": {
+        "decision": "deny",
+        "reason_code": "over_threshold"
+      },
+      "fixtures": {
+        "f": {
+          "mode": "seq",
+          "lines": 250
+        }
+      },
+      "env": {
+        "SHUNT_MIN_LINES": "200"
+      }
+    },
+    {
+      "name": "env_override_higher",
+      "hook": "read",
+      "why": "",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Read",
+        "session_id": "env_override_higher",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "file_path": "@FIX:f@"
+        }
+      },
+      "expect": {
+        "decision": "none",
+        "reason_code": "under_threshold"
+      },
+      "fixtures": {
+        "f": {
+          "mode": "seq",
+          "lines": 351
+        }
+      },
+      "env": {
+        "SHUNT_MIN_LINES": "500"
+      }
+    },
+    {
+      "name": "env_non_numeric_falls_back",
+      "hook": "read",
+      "why": "SHUNT_MIN_LINES=abc must not disable the hook",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Read",
+        "session_id": "env_non_numeric_falls_back",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "file_path": "@FIX:f@"
+        }
+      },
+      "expect": {
+        "decision": "deny",
+        "reason_code": "over_threshold"
+      },
+      "fixtures": {
+        "f": {
+          "mode": "seq",
+          "lines": 500
+        }
+      },
+      "env": {
+        "SHUNT_MIN_LINES": "abc"
+      }
+    },
+    {
+      "name": "kill_switch",
+      "hook": "read",
+      "why": "",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Read",
+        "session_id": "kill_switch",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "file_path": "@FIX:f@"
+        }
+      },
+      "expect": {
+        "decision": "none",
+        "reason_code": "disabled"
+      },
+      "fixtures": {
+        "f": {
+          "mode": "seq",
+          "lines": 5000
+        }
+      },
+      "env": {
+        "SHUNT_DISABLE": "1"
+      }
+    },
+    {
+      "name": "warn_mode_does_not_deny",
+      "hook": "read",
+      "why": "warn nudges via additionalContext instead",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Read",
+        "session_id": "warn_mode_does_not_deny",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "file_path": "@FIX:f@"
+        }
+      },
+      "expect": {
+        "decision": "none",
+        "reason_code": "over_threshold"
+      },
+      "fixtures": {
+        "f": {
+          "mode": "seq",
+          "lines": 500
+        }
+      },
+      "env": {
+        "SHUNT_MODE": "warn"
+      }
+    },
+    {
+      "name": "wrong_tool_name",
+      "hook": "read",
+      "why": "",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "NotebookRead",
+        "session_id": "wrong_tool_name",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "file_path": "@FIX:f@"
+        }
+      },
+      "expect": {
+        "decision": "none",
+        "reason_code": "not_a_reader_command"
+      },
+      "fixtures": {
+        "f": {
+          "mode": "seq",
+          "lines": 500
+        }
+      }
+    },
+    {
+      "name": "huge_file_is_fast",
+      "hook": "read",
+      "why": "must never read the whole file to count it",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Read",
+        "session_id": "huge_file_is_fast",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "file_path": "@FIX:f@"
+        }
+      },
+      "expect": {
+        "decision": "deny",
+        "reason_code": "over_threshold",
+        "max_latency_ms": 400
+      },
+      "fixtures": {
+        "f": {
+          "mode": "seq",
+          "lines": 100000
+        }
+      }
+    },
+    {
+      "name": "deny_reason_is_actionable",
+      "hook": "read",
+      "why": "the only thing between a deny and a stuck model",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Read",
+        "session_id": "deny_reason_is_actionable",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "file_path": "@FIX:f@"
+        }
+      },
+      "expect": {
+        "decision": "deny",
+        "reason_matches": "bulk-reader",
+        "reason_not_matches": "(null|undefined|\\$\\{)"
+      },
+      "fixtures": {
+        "f": {
+          "mode": "seq",
+          "lines": 500
+        }
+      }
+    }
+  ]
+}

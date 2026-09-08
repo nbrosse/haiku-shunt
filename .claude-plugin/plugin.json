@@ -1,0 +1,20 @@
+{
+  "name": "haiku-shunt",
+  "version": "0.1.0",
+  "description": "Keeps bulk file reads out of your orchestrator's context by delegating them to a Haiku subagent. A Portal-free reimplementation of Spotify's shunt.",
+  "author": {
+    "name": "Nicolas Brosse"
+  },
+  "homepage": "https://github.com/nbrosse/haiku-shunt",
+  "repository": "https://github.com/nbrosse/haiku-shunt",
+  "license": "Apache-2.0",
+  "keywords": [
+    "context",
+    "tokens",
+    "cost",
+    "haiku",
+    "subagent",
+    "hooks",
+    "shunt"
+  ]
+}

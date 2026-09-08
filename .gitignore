@@ -1,0 +1,5 @@
+evals/.fixtures/
+evals/results/
+.haiku-shunt/
+*.pyc
+__pycache__/

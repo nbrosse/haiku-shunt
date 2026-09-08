@@ -1,0 +1,20 @@
+haiku-shunt
+Copyright 2026 Nicolas Brosse
+
+Licensed under the Apache License, Version 2.0.
+
+This project is an independent reimplementation of the idea behind the `shunt`
+plugin in Spotify's portal-ai-plugins:
+
+    https://github.com/spotify/portal-ai-plugins/tree/main/plugins/shunt
+    Copyright Spotify AB, licensed under the Apache License, Version 2.0.
+
+Spotify's design - a PreToolUse hook that blocks large reads and routes them to
+a cheaper model, paired with skills that tell the orchestrator what to do
+instead - is the origin of this approach, and the eval-case structure here
+follows theirs.
+
+No Spotify source code is copied. The worker transport differs entirely:
+Spotify's routes through portal-cli to Spotify Portal/AiKA, while this project
+uses a native Claude Code subagent pinned to Haiku and has no third-party
+dependency.

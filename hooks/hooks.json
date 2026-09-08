@@ -1,0 +1,38 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "timeout": 10,
+            "command": "HAIKU_SHUNT_PLUGIN_DATA=${CLAUDE_PLUGIN_DATA} ${CLAUDE_PLUGIN_ROOT}/hooks/read-guard.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "timeout": 10,
+            "command": "HAIKU_SHUNT_PLUGIN_DATA=${CLAUDE_PLUGIN_DATA} ${CLAUDE_PLUGIN_ROOT}/hooks/bash-guard.sh"
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "matcher": "(.*:)?(bulk-reader|code-writer)",
+        "hooks": [
+          {
+            "type": "command",
+            "timeout": 15,
+            "command": "HAIKU_SHUNT_PLUGIN_DATA=${CLAUDE_PLUGIN_DATA} ${CLAUDE_PLUGIN_ROOT}/hooks/subagent-stop.sh"
+          }
+        ]
+      }
+    ]
+  }
+}

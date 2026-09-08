@@ -1,0 +1,14 @@
+{
+  "name": "haiku-shunt",
+  "owner": {
+    "name": "Nicolas Brosse"
+  },
+  "description": "Context shunt for Claude Code: bulk reads go to Haiku, reasoning stays on your main model.",
+  "plugins": [
+    {
+      "name": "haiku-shunt",
+      "source": "./",
+      "description": "Delegate large file reads to a Haiku subagent instead of loading them into the orchestrator's context."
+    }
+  ]
+}

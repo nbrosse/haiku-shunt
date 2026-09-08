@@ -1,0 +1,394 @@
+{
+  "cases": [
+    {
+      "name": "worker_bulk_reader_exempt",
+      "hook": "read",
+      "why": "the worker must be able to read what the parent could not",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Read",
+        "session_id": "worker_bulk_reader_exempt",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "file_path": "@FIX:b@"
+        },
+        "agent_type": "bulk-reader",
+        "agent_id": "agent-abc"
+      },
+      "expect": {
+        "decision": "none",
+        "reason_code": "self_agent_bypass"
+      },
+      "fixtures": {
+        "b": {
+          "mode": "seq",
+          "lines": 5000,
+          "name": "big.txt"
+        }
+      }
+    },
+    {
+      "name": "worker_code_writer_exempt",
+      "hook": "read",
+      "why": "",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Read",
+        "session_id": "worker_code_writer_exempt",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "file_path": "@FIX:b@"
+        },
+        "agent_type": "code-writer",
+        "agent_id": "agent-def"
+      },
+      "expect": {
+        "decision": "none",
+        "reason_code": "self_agent_bypass"
+      },
+      "fixtures": {
+        "b": {
+          "mode": "seq",
+          "lines": 5000,
+          "name": "big.txt"
+        }
+      }
+    },
+    {
+      "name": "worker_without_agent_id",
+      "hook": "read",
+      "why": "agent_id is absent on a --agent main thread, so the guard keys off agent_type alone",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Read",
+        "session_id": "worker_without_agent_id",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "file_path": "@FIX:b@"
+        },
+        "agent_type": "bulk-reader"
+      },
+      "expect": {
+        "decision": "none",
+        "reason_code": "self_agent_bypass"
+      },
+      "fixtures": {
+        "b": {
+          "mode": "seq",
+          "lines": 5000,
+          "name": "big.txt"
+        }
+      }
+    },
+    {
+      "name": "worker_bash_exempt",
+      "hook": "bash",
+      "why": "same guard on the Bash hook",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "session_id": "worker_bash_exempt",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "command": "cat @FIX:b@"
+        },
+        "agent_type": "bulk-reader",
+        "agent_id": "agent-abc"
+      },
+      "expect": {
+        "decision": "none",
+        "reason_code": "self_agent_bypass"
+      },
+      "fixtures": {
+        "b": {
+          "mode": "seq",
+          "lines": 5000,
+          "name": "big.txt"
+        }
+      }
+    },
+    {
+      "name": "other_subagent_still_shunted",
+      "hook": "read",
+      "why": "Explore benefits from the shunt too",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Read",
+        "session_id": "other_subagent_still_shunted",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "file_path": "@FIX:b@"
+        },
+        "agent_type": "Explore",
+        "agent_id": "agent-xyz"
+      },
+      "expect": {
+        "decision": "deny",
+        "reason_code": "over_threshold"
+      },
+      "fixtures": {
+        "b": {
+          "mode": "seq",
+          "lines": 5000,
+          "name": "big.txt"
+        }
+      }
+    },
+    {
+      "name": "other_subagent_exempt_when_configured",
+      "hook": "read",
+      "why": "",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Read",
+        "session_id": "other_subagent_exempt_when_configured",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "file_path": "@FIX:b@"
+        },
+        "agent_type": "Explore",
+        "agent_id": "agent-xyz"
+      },
+      "expect": {
+        "decision": "none",
+        "reason_code": "other_agent_exempt"
+      },
+      "fixtures": {
+        "b": {
+          "mode": "seq",
+          "lines": 5000,
+          "name": "big.txt"
+        }
+      },
+      "env": {
+        "SHUNT_SHUNT_OTHER_AGENTS": "0"
+      }
+    },
+    {
+      "name": "no_agent_fields_is_main_thread",
+      "hook": "read",
+      "why": "absent means main thread: behave as before",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Read",
+        "session_id": "no_agent_fields_is_main_thread",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "file_path": "@FIX:b@"
+        }
+      },
+      "expect": {
+        "decision": "deny",
+        "reason_code": "over_threshold"
+      },
+      "fixtures": {
+        "b": {
+          "mode": "seq",
+          "lines": 5000,
+          "name": "big.txt"
+        }
+      }
+    },
+    {
+      "name": "null_agent_type_is_main_thread",
+      "hook": "read",
+      "why": "null must not be read as the string 'null'",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Read",
+        "session_id": "null_agent_type_is_main_thread",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "file_path": "@FIX:b@"
+        },
+        "agent_type": null
+      },
+      "expect": {
+        "decision": "deny",
+        "reason_code": "over_threshold"
+      },
+      "fixtures": {
+        "b": {
+          "mode": "seq",
+          "lines": 5000,
+          "name": "big.txt"
+        }
+      }
+    },
+    {
+      "name": "empty_agent_type_is_main_thread",
+      "hook": "read",
+      "why": "",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Read",
+        "session_id": "empty_agent_type_is_main_thread",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "file_path": "@FIX:b@"
+        },
+        "agent_type": ""
+      },
+      "expect": {
+        "decision": "deny",
+        "reason_code": "over_threshold"
+      },
+      "fixtures": {
+        "b": {
+          "mode": "seq",
+          "lines": 5000,
+          "name": "big.txt"
+        }
+      }
+    },
+    {
+      "name": "namespaced_worker_exempt",
+      "hook": "read",
+      "why": "VERIFIED LIVE: plugin agents arrive as '<plugin>:<agent>'; matching the bare name denied our own worker",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Read",
+        "session_id": "namespaced_worker_exempt",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "agent_type": "haiku-shunt:bulk-reader",
+        "agent_id": "a807a6d48ef9de262",
+        "tool_input": {
+          "file_path": "@FIX:b@"
+        }
+      },
+      "expect": {
+        "decision": "none",
+        "reason_code": "self_agent_bypass"
+      },
+      "fixtures": {
+        "b": {
+          "mode": "seq",
+          "lines": 5000,
+          "name": "big.txt"
+        }
+      }
+    },
+    {
+      "name": "namespaced_code_writer_exempt",
+      "hook": "read",
+      "why": "",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Read",
+        "session_id": "namespaced_code_writer_exempt",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "agent_type": "haiku-shunt:code-writer",
+        "agent_id": "a807a6d48ef9de262",
+        "tool_input": {
+          "file_path": "@FIX:b@"
+        }
+      },
+      "expect": {
+        "decision": "none",
+        "reason_code": "self_agent_bypass"
+      },
+      "fixtures": {
+        "b": {
+          "mode": "seq",
+          "lines": 5000,
+          "name": "big.txt"
+        }
+      }
+    },
+    {
+      "name": "namespaced_worker_exempt_bash",
+      "hook": "bash",
+      "why": "",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "session_id": "namespaced_worker_exempt_bash",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "agent_type": "haiku-shunt:bulk-reader",
+        "agent_id": "a807a6d48ef9de262",
+        "tool_input": {
+          "command": "cat @FIX:b@"
+        }
+      },
+      "expect": {
+        "decision": "none",
+        "reason_code": "self_agent_bypass"
+      },
+      "fixtures": {
+        "b": {
+          "mode": "seq",
+          "lines": 5000,
+          "name": "big.txt"
+        }
+      }
+    },
+    {
+      "name": "namespaced_other_agent_still_shunted",
+      "hook": "read",
+      "why": "a namespaced agent that is not ours is still shunted",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Read",
+        "session_id": "namespaced_other_agent_still_shunted",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "agent_type": "someplugin:explorer",
+        "agent_id": "a807a6d48ef9de262",
+        "tool_input": {
+          "file_path": "@FIX:b@"
+        }
+      },
+      "expect": {
+        "decision": "deny",
+        "reason_code": "over_threshold"
+      },
+      "fixtures": {
+        "b": {
+          "mode": "seq",
+          "lines": 5000,
+          "name": "big.txt"
+        }
+      }
+    },
+    {
+      "name": "lookalike_suffix_not_exempt",
+      "hook": "read",
+      "why": "'not-bulk-reader' must not be read as ours",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Read",
+        "session_id": "lookalike_suffix_not_exempt",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "agent_type": "evil:not-bulk-reader",
+        "agent_id": "a807a6d48ef9de262",
+        "tool_input": {
+          "file_path": "@FIX:b@"
+        }
+      },
+      "expect": {
+        "decision": "deny",
+        "reason_code": "over_threshold"
+      },
+      "fixtures": {
+        "b": {
+          "mode": "seq",
+          "lines": 5000,
+          "name": "big.txt"
+        }
+      }
+    }
+  ]
+}
