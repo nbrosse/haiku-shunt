@@ -106,6 +106,19 @@ block and repeats the message's usage on each, so summing rows overcounts ~3×,
 while taking the first row per message undercounts output ~60× (`output_tokens`
 grows across blocks; the input side does not). See `hooks/lib/usage.jq`.
 
+Three of the model's inputs start as assumptions and get replaced by
+measurements as soon as there is something to measure:
+
+| input | assumed | measured from |
+|---|---|---|
+| worker cache-write floor | 14,600 tok | median of your own delegations |
+| summary size | 300 tok | the worker's last message (`final_output_tokens`) |
+| `R`, turns remaining | 12 | parent turns after the delegation, via `analyze --write` |
+
+The report header says which one it used — `R=7 (measured from 2 delegation(s))`
+or `R=12 (assumed)` — so a number you are about to trust never hides its
+provenance.
+
 **It accounts for `Read`'s truncation.** `Read` stops at ~2000 lines, so a
 4014-line file never costs the parent 4014 lines. Whole-file numbers overstate
 the saving. The report shows the capped figure as the headline and the uncapped
@@ -118,13 +131,44 @@ assumed. Below that size, delegating *loses* money:
 ```
 haiku-shunt report --parent claude-opus-5
 ...
-  break-even file size at these settings: 1,470 tokens (~113 lines)
+  break-even file size at these settings: 1,265 tokens (~97 lines)
   3/14 denies were BELOW break-even - raise SHUNT_MIN_LINES
 ```
+
+(1,265 is the figure for the default 14,600-token floor at `R=12`; `doctor`
+prints the same number. Once your own delegations have been measured, the floor
+— and this threshold — move.)
 
 The default 350 lines suits an Opus parent. On Sonnet, break-even is higher —
 run `haiku-shunt doctor`, which computes it from your own delegations and tells
 you what to set.
+
+## The other direction: `code-writer`
+
+`bulk-reader` keeps tokens out of the *input* side. `code-writer` keeps them off
+the *output* side: give it a spec and a reference file and it writes the target
+to disk on Haiku, returning ten lines instead of the file. For generated tests,
+fixtures, config and type stubs — where most of the output is predictable from
+a file that already exists — that is the expensive direction, at 5× the input
+rate.
+
+**There is no Write hook, and there cannot be one.** `PreToolUse` fires after
+the model has produced `tool_input.content`; the output tokens are already
+spent by the time a hook could object. Denying the `Write` and asking for a
+subagent then pays for the same code twice. Reads can be intercepted because
+the cost lands *after* the tool call; writes cannot, because it lands before.
+
+So this half is a choice the model makes up front, from the agent description,
+not a rule the plugin enforces — and the README says so rather than implying a
+symmetry that does not exist. What the plugin does do is **measure it**:
+`SubagentStop` matches `code-writer` too, and the report gives it its own
+section, valuing the tokens the worker generated at the parent's output rate
+plus the context they never entered.
+
+That figure is labelled `proxy`, not `estimated` or `MEASURED`, because the
+worker's output stands in for output the parent never produced. There is no
+counterfactual to compare against — the same honesty problem as the read side,
+one step further from the evidence.
 
 ## Commands
 
@@ -132,8 +176,36 @@ you what to set.
 haiku-shunt report [--parent MODEL] [--turns N] [--cache-hit 0..1] [--since DAYS]
                    [--worker-floor N] [--format table|json]
 haiku-shunt analyze [TRANSCRIPT] [--all] [--write]   # measured, not modelled
+                                                     # --write also feeds R back
+haiku-shunt session-cost [TRANSCRIPT|SESSION_ID]     # parent + subagents, no model
 haiku-shunt doctor                                   # install + assumptions
 ```
+
+`session-cost` is the only number here with no cost model behind it: it prices
+a whole session from the transcripts\' own usage rows, parent plus every
+subagent it spawned. That makes it the metric for an A/B — run the same task
+with and without the shunt and compare two things that both really happened,
+instead of one that happened and one that was modelled.
+
+## Benchmarking
+
+```bash
+bash bench/ab.sh --task bench/tasks/smoke.sh --reps 1   # prove the wiring
+bash bench/ab.sh --task bench/tasks/mytask.sh --reps 5  # a real measurement
+```
+
+Arms run interleaved (A,B,A,B…) because cache warmth and service load drift
+over a run; the control arm loads no plugin at all, so the comparison is not
+confounded by the agents still being available. Each run gets a fresh session
+id and its own log dir, and every row carries a pass/fail from the task\'s own
+`task_verify` — a cheaper arm that did not do the work is not a saving.
+
+**The task must be long and multi-turn, and must read the big files early.**
+The entire thesis is that context is re-sent on every later turn, so a one-shot
+"read this and summarise it" measures the 1.25× cache write and nothing else.
+`bench/tasks/smoke.sh` is deliberately that shape, and it reliably shows the
+shunt losing — it is there to prove the chain fires, not to measure anything.
+See `bench/tasks/TEMPLATE.sh`.
 
 Also `/haiku-shunt:shunt-report` and `/haiku-shunt:shunt-doctor` inside a session.
 
@@ -185,9 +257,21 @@ visible.
 
 ## Known limits
 
+- **After a deny, the model reliably picks windowed reads over delegating.**
+  In every unprompted live run so far it chose option 2, never option 1 — so
+  the tokens are avoided by paging rather than by a subagent. The report still
+  credits the deny with the whole file, which overstates the saving by whatever
+  the windows brought back in. Delegation happens when asked for by name.
+- The measured worker cost used to race the transcript: `SubagentStop` fires
+  while the worker\'s final message is still being flushed, and reading too
+  early undercounted its output ~6×. `hooks/subagent-stop.sh` now waits for the
+  final text block; records carry `transcript_settled` so you can see when it
+  gave up waiting.
 - `bash -c "cat big.txt"` is not inspected.
-- Token estimates are `chars/4`, ±15% on source code. Only `T` is estimated;
-  worker cost and turns-remaining are measured.
+- Token estimates are `chars/4`, ±15% on source code. `T` is estimated; worker
+  cost, summary size and turns-remaining are measured (`R` only after
+  `analyze --write`; until then the report says `assumed`).
+- The `code-writer` saving is a proxy, not a measurement — see above.
 - The counterfactual — whether you would have read the file at all — is not
   observable. **The parent-side saving is a model, not a measurement**, and the
   report says so every time it prints.
@@ -199,7 +283,7 @@ visible.
 ## Development
 
 ```bash
-bash evals/run.sh              # 173 offline cases: hooks, recursion, robustness, cost math
+bash evals/run.sh              # 203 offline cases: hooks, recursion, robustness, cost math
 bash evals/run.sh -v --hook bash --filter head
 claude plugin validate --strict .
 ```
@@ -208,7 +292,10 @@ No network, no API cost, no Claude Code required. The suite covers the shell
 parser hard (bounded reads, fd-aware redirects, heredocs, `cd` tracking,
 prefixes, quoting, `/dev/zero`, symlinks), the recursion guards including the
 namespaced form, fail-open on malformed input, 200-way concurrent log appends,
-and the cost arithmetic against hand-computed values.
+and the cost arithmetic against hand-computed values — including the write-side
+proxy, the measured-vs-assumed provenance of `R`, the fact that `group_by`
+sorts by `message.id` so the last group is not the last message, and the
+SubagentStop race below.
 
 `claude plugin eval` cases would be the natural second tier for behavioural
 checks, but it is early-access gated and cannot assert hook decisions anyway.

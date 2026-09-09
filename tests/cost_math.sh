@@ -83,4 +83,61 @@ rows = [json.loads(l) for l in open(os.environ['WJ'])]
 print(json.dumps(ns['aggregate_usage'](rows), sort_keys=True))
 ")
 chk "python aggregator matches jq" "$(jq -S -c 'del(.model)' <<<"$PY_U")" "$(jq -S -c 'del(.model)' <<<"$U")"
+
+# group_by sorts by message.id, which is random -- so the LAST group is not the
+# last message. These ids sort backwards on purpose: msg_zzz is first in time.
+# Get this wrong and summary_tokens reports the wrong message's output.
+cat > "$T/rev.jsonl" <<'EOF'
+{"type":"assistant","message":{"id":"msg_zzz","model":"claude-haiku-4-5-20251001","usage":{"input_tokens":10,"output_tokens":342,"cache_creation_input_tokens":14598,"cache_read_input_tokens":0}}}
+{"type":"assistant","message":{"id":"msg_aaa","model":"claude-haiku-4-5-20251001","usage":{"input_tokens":5,"output_tokens":327,"cache_creation_input_tokens":4704,"cache_read_input_tokens":66080}}}
+EOF
+RV=$(jq -s -f "$P/hooks/lib/usage.jq" "$T/rev.jsonl")
+chk "final_output_tokens is chronological, not id-sorted" "$(jq -r .final_output_tokens <<<"$RV")" 327
+chk "final_output_tokens != total output"                 "$(jq -r .output_tokens        <<<"$RV")" 669
+PY_RV=$(HS="$P/bin/haiku-shunt" WJ="$T/rev.jsonl" python3 -c "
+import json, os
+ns = {'__name__': 'haiku_shunt_under_test', '__file__': os.environ['HS']}
+exec(compile(open(os.environ['HS']).read(), 'haiku-shunt', 'exec'), ns)
+print(json.dumps(ns['aggregate_usage']([json.loads(l) for l in open(os.environ['WJ'])])))
+")
+chk "python agrees on the final message" "$(jq -r .final_output_tokens <<<"$PY_RV")" 327
+
+# R is measured, not assumed, once `analyze --write` has counted the parent
+# turns that followed each delegation. Median of 4 and 8 is 6.
+cat > "$LOG" <<'EOF'
+{"v":1,"ts":"2026-01-01T00:00:00.000Z","event":"hook_decision","hook":"read_guard","tool_name":"Read","session_id":"s","decision":"deny","reason_code":"over_threshold","est_tokens_avoided":40000,"est_tokens_uncapped":40000,"latency_ms":10,"paths":[]}
+{"v":1,"ts":"2026-01-01T00:00:01.000Z","event":"delegation","phase":"backfill","worker_agent_id":"w1","worker_agent_base":"bulk-reader","turns_remaining":4,"usage":{"requests":2,"model":"claude-haiku-4-5-20251001","input_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":0}}
+{"v":1,"ts":"2026-01-01T00:00:02.000Z","event":"delegation","phase":"backfill","worker_agent_id":"w2","worker_agent_base":"bulk-reader","turns_remaining":8,"usage":{"requests":2,"model":"claude-haiku-4-5-20251001","input_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":0}}
+EOF
+JT=$(rep --parent claude-sonnet-5 --cache-hit 1.0)
+chk "R is the median of measured turns_remaining" "$(jq -r .turns        <<<"$JT")" 6
+chk "and says so"                                 "$(jq -r .turns_source <<<"$JT")" "measured from 2 delegation(s)"
+chk "--turns still wins" "$(jq -r .turns_source <<<"$(rep --parent claude-sonnet-5 --turns 3)")" "pinned by --turns"
+
+# A measured summary replaces the 300-token assumption in the overhead line.
+#   (140 deny + 200 prompt + 900 summary) * $2.00 * 2.25 / 1e6 = 0.005580
+cat > "$LOG" <<'EOF'
+{"v":1,"ts":"2026-01-01T00:00:00.000Z","event":"hook_decision","hook":"read_guard","tool_name":"Read","session_id":"s","decision":"deny","reason_code":"over_threshold","est_tokens_avoided":40000,"est_tokens_uncapped":40000,"latency_ms":10,"paths":[]}
+{"v":1,"ts":"2026-01-01T00:00:01.000Z","event":"delegation","phase":"stop","worker_agent_id":"w1","worker_agent_base":"bulk-reader","summary_tokens":900,"usage":{"requests":2,"model":"claude-haiku-4-5-20251001","input_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":1000}}
+EOF
+near "measured summary drives overhead" \
+  "$(jq -r .overhead_usd <<<"$(rep --parent claude-sonnet-5 --turns 10 --cache-hit 1.0)")" 0.005580
+
+# code-writer: the saving is on the OUTPUT side, and it pays no deny reason.
+#   content  = 5000 output - 200 summary                    = 4800
+#   saving   = 4800 * ($10.00 out + $2.00 in * 2.25) / 1e6  = 0.069600
+#   overhead = (200 prompt + 200 summary) * $2.00 * 2.25/1e6= 0.001800
+#   worker   = (100 + 20000*1.25 + 5000*5) / 1e6            = 0.050100
+#   net      = 0.069600 - 0.001800 - 0.050100               = 0.017700
+cat > "$LOG" <<'EOF'
+{"v":1,"ts":"2026-01-01T00:00:01.000Z","event":"delegation","phase":"stop","worker_agent_id":"cw1","worker_agent_type":"haiku-shunt:code-writer","worker_agent_base":"code-writer","summary_tokens":200,"usage":{"requests":2,"model":"claude-haiku-4-5-20251001","input_tokens":100,"cache_creation_input_tokens":20000,"cache_read_input_tokens":0,"output_tokens":5000}}
+EOF
+JW=$(rep --parent claude-sonnet-5 --turns 10 --cache-hit 1.0)
+chk  "write tokens exclude the summary" "$(jq -r .write_tokens_avoided <<<"$JW")" 4800
+near "write saving"                     "$(jq -r .write_gross_usd <<<"$JW")" 0.069600
+near "a code-writer pays no deny reason" "$(jq -r .overhead_usd   <<<"$JW")" 0.001800
+near "code-writer is net positive"      "$(jq -r .net_usd         <<<"$JW")" 0.017700
+# and it must not be counted as a read: no denies, so no read-side saving.
+near "no read saving from a write"      "$(jq -r .gross_usd       <<<"$JW")" 0.0
+
 exit $FAILED
