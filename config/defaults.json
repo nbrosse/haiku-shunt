@@ -29,7 +29,7 @@
   },
   "estimation": {
     "bytes_per_token": 4,
-    "read_gutter_tokens_per_line": 1.5,
+    "worker_floor_tokens": 14600,
     "assumed_turns_remaining": 12,
     "assumed_cache_hit_rate": 0.90
   }

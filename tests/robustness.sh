@@ -20,15 +20,6 @@ for h in read-guard.sh bash-guard.sh; do
   chk "$h:   no stdout on garbage" "$(wc -c < "$T/out")" 0
 done
 
-# SubagentStop has no decision to emit, but the invariant is the same.
-h=subagent-stop.sh
-chk "$h: not json"        "$(feed $h 'this is not json')" 0
-chk "$h:   empty stdin"   "$(feed $h '')" 0
-chk "$h:   empty object"  "$(feed $h '{}')" 0
-chk "$h:   array payload" "$(feed $h '[1,2,3]')" 0
-chk "$h:   non-string fields" "$(feed $h '{"agent_type":{"x":1},"agent_id":[1]}')" 0
-chk "$h:   no stdout on garbage" "$(wc -c < "$T/out")" 0
-
 # A very long command must still produce a parseable, size-capped log line.
 long="cat $(for i in $(seq 1 3000); do printf '/some/very/long/path/%d.txt ' $i; done)"
 printf '{"tool_name":"Bash","session_id":"big","cwd":"%s","tool_input":{"command":%s}}' \

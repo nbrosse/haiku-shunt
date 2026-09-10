@@ -1,6 +1,6 @@
 ---
 name: shunt-report
-description: Show what haiku-shunt has actually saved - delegations, tokens kept out of context, measured worker cost, and net saving. Use when the user asks whether the shunt is worth it, how much it saved, or how to tune the threshold.
+description: Show what haiku-shunt's hooks have done - how often they fired and denied, why, and how big the denied files were. Use when the user asks whether the shunt is firing, how often a large file got through anyway, or which threshold values are worth benchmarking.
 allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/bin/haiku-shunt:*)
 ---
 
@@ -12,16 +12,15 @@ ${CLAUDE_PLUGIN_ROOT}/bin/haiku-shunt report $ARGUMENTS
 
 Then, briefly:
 
-- Lead with the net figure and whether it is positive.
-- Say plainly which numbers are measured and which are modelled. Worker cost is
-  measured from the workers' own transcripts. The parent-side saving is a
-  model: the counterfactual - whether the file would have been read at all -
-  cannot be observed.
-- If any denies fell below the printed break-even size, say so and recommend
-  raising `SHUNT_MIN_LINES`. Below break-even the plugin costs money rather
-  than saving it.
-- If `R` is shown as assumed, mention that `haiku-shunt analyze` replaces it
-  with a counted value and usually moves the number a lot.
+- Lead with the deny rate and the most common reasons.
+- Point out `deny_cap_reached`: each one is a large file that reached context
+  anyway after the model retried.
+- Read the DENIED SIZES buckets: a threshold change only affects denies in the
+  buckets it crosses. If almost none sit near the threshold, tuning it will
+  not change anything.
+- This report does not say what the shunt saved, and must not be presented as
+  if it did. Cost is measured only by A/B - same task with and without the
+  plugin, priced by Claude Code: `bash ${CLAUDE_PLUGIN_ROOT}/bench/ab.sh`, with
+  `--arm NAME:SHUNT_MIN_LINES=N` to compare thresholds.
 
-Useful flags: `--parent claude-opus-5`, `--turns N`, `--cache-hit 0.9`,
-`--worker-floor N`, `--since DAYS`, `--format json`.
+Useful flags: `--since DAYS`, `--format json`.
