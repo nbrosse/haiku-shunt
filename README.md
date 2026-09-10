@@ -95,12 +95,13 @@ re-sent ~37 more times, discounted to ~10% of the input rate by prompt caching.
 Keeping it out of the parent entirely is what compounds.
 
 ```
-C_avoided = T · P_in · (1.25 + μ·R) / 1e6      μ = 0.10h + 1.0(1−h)
+C_avoided = T · P_in · (2 + μ·R) / 1e6      μ = 0.10h + 1.0(1−h)
 ```
 
 `T` = tokens in the file, `R` = turns remaining after the read, `h` = cache-hit
-rate. At `R=0` this collapses to the naive "file tokens × parent rate". The
-`μ·R` term is where the saving lives.
+rate. The `2` is the cache write: Claude Code's main session uses the 1-hour
+TTL, billed at 2× input (its subagents use the 5-minute one, 1.25×). At `R=0`
+only that write remains. The `μ·R` term is where the saving lives.
 
 That formula is the argument, not the measurement. Whether you would have read
 the file at all is not observable, so no log of what the hooks did can say what
@@ -114,13 +115,12 @@ system-prompt cache write, ~14,600 tokens. Below some file size, delegating
 prices in `config/defaults.json`:
 
 ```
-break-even vs claude-sonnet-5       3,571 tokens  (~  275 lines)
-break-even vs claude-opus-5         1,265 tokens  (~   97 lines)
+break-even vs claude-sonnet-5       2,839 tokens  (~  218 lines)
+break-even vs claude-opus-5         1,030 tokens  (~   79 lines)
 ```
 
 It is an order of magnitude, from assumed `R=12` and `h=0.9`, and it needs no
-data. The default 350 lines suits an Opus parent and sits just above
-break-even on Sonnet.
+data. The default 350 lines is above break-even for both parents.
 
 ## The other direction: `code-writer`
 

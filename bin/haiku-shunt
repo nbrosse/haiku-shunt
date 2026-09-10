@@ -15,7 +15,10 @@ from datetime import datetime, timedelta, timezone
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CFG = json.load(open(os.path.join(ROOT, "config", "defaults.json")))
 PRICE = CFG["pricing_usd_per_mtok"]
-KW = PRICE["cache_write_multiplier"]
+# The main session and subagents do not use the same cache TTL: 1h (2x) for
+# the parent, 5m (1.25x) for the worker. See usage.cache_creation in transcripts.
+KW_PARENT = PRICE["parent_cache_write_multiplier"]
+KW_WORKER = PRICE["worker_cache_write_multiplier"]
 KR = PRICE["cache_read_multiplier"]
 
 # Lower bounds, in lines reaching the model. Deny needs > min_lines, so the
@@ -88,12 +91,13 @@ def rate(model, key):
 def parent_factor(turns, cache_hit):
     """Cost multiplier applied to tokens that enter the parent context.
 
-    Content is cache-written once (1.25x), then re-sent on every later turn --
-    at the cache-read rate when it hits (0.10x) and at full rate when it does
-    not. This second term is where the saving actually comes from.
+    Content is cache-written once (2x: the main session uses the 1h TTL), then
+    re-sent on every later turn -- at the cache-read rate when it hits (0.10x)
+    and at full rate when it does not. This second term is where the saving
+    actually comes from.
     """
     mu = KR * cache_hit + 1.0 * (1.0 - cache_hit)
-    return KW + mu * turns
+    return KW_PARENT + mu * turns
 
 
 def breakeven_tokens(parent, turns, cache_hit, floor, worker_out=500):
@@ -102,10 +106,10 @@ def breakeven_tokens(parent, turns, cache_hit, floor, worker_out=500):
     p_in = rate(parent, "input")
     h_in = rate(PRICE["default_worker"], "input")
     h_out = rate(PRICE["default_worker"], "output")
-    denom = p_in * parent_factor(turns, cache_hit) - KW * h_in
+    denom = p_in * parent_factor(turns, cache_hit) - KW_WORKER * h_in
     if denom <= 0:
         return None
-    return (floor * KW * h_in + worker_out * h_out) / denom
+    return (floor * KW_WORKER * h_in + worker_out * h_out) / denom
 
 
 def deny_lines(h):

@@ -16,7 +16,9 @@
   },
   "pricing_usd_per_mtok": {
     "_comment": "Verify against https://claude.com/pricing before trusting the money column.",
-    "cache_write_multiplier": 1.25,
+    "_cache_comment": "Observed in transcripts (usage.cache_creation): the main session writes 1h cache (2x input), subagents write 5m cache (1.25x).",
+    "parent_cache_write_multiplier": 2.0,
+    "worker_cache_write_multiplier": 1.25,
     "cache_read_multiplier": 0.10,
     "models": {
       "claude-opus-5":    { "input": 5.0, "output": 25.0 },
