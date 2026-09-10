@@ -12,11 +12,16 @@ PAYLOAD=$(timeout 2 cat) || PAYLOAD=""
 jq -e . >/dev/null 2>&1 <<<"$PAYLOAD" || exit 0
 shunt_load_config
 
-eval "$(jq -r '@sh "SESSION_ID=\(.session_id // "")
-AGENT_ID=\(.agent_id // "")
-AGENT_TYPE=\(.agent_type // "")
-TRANSCRIPT_PATH=\(.transcript_path // "")
-AGENT_TP=\(.agent_transcript_path // "")"' <<<"$PAYLOAD")"
+# Same normalization as the guards: valid JSON that is not an object, or fields
+# that are not strings, must read as empty rather than crash the hook.
+eval "$(jq -r '
+  def s: if type=="string" then . else "" end;
+  if type=="object" then . else {} end
+  | @sh "SESSION_ID=\(.session_id|s)
+AGENT_ID=\(.agent_id|s)
+AGENT_TYPE=\(.agent_type|s)
+TRANSCRIPT_PATH=\(.transcript_path|s)
+AGENT_TP=\(.agent_transcript_path|s)"' <<<"$PAYLOAD")" || exit 0
 
 AGENT_BASE="${AGENT_TYPE##*:}"   # "haiku-shunt:bulk-reader" -> "bulk-reader"
 case " $WORKER_AGENTS " in *" $AGENT_BASE "*) ;; *) exit 0 ;; esac

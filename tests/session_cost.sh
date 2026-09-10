@@ -36,7 +36,8 @@ near "parent priced at its own model's rates" "$(jq -r .parent_usd <<<"$J")" 0.0
 # worker = (100*1 + 2000*1.25*1 + 200*5) / 1e6                = 0.003600
 near "worker priced at the worker's rates"    "$(jq -r .worker_usd <<<"$J")" 0.003600
 near "total is parent + workers"              "$(jq -r .total_usd  <<<"$J")" 0.017375
-chk  "assistant turns counted"                "$(jq -r .assistant_turns <<<"$J")" 3
+# Three rows, two messages: a turn is a message, not a content block.
+chk  "assistant turns counted per message"    "$(jq -r .assistant_turns <<<"$J")" 2
 chk  "worker is attributed to its agent"      "$(jq -r '.workers[0].agent_type' <<<"$J")" "haiku-shunt:bulk-reader"
 
 # The output-per-block trap applies to the parent too: msg_P1's blocks are
@@ -49,6 +50,24 @@ cp "$SESS.jsonl" "$S2.jsonl"
 J2=$("$P/bin/haiku-shunt" session-cost "$S2.jsonl" --format json)
 chk  "no subagents -> no workers" "$(jq -r '.workers | length' <<<"$J2")" 0
 near "no subagents -> total is parent" "$(jq -r .total_usd <<<"$J2")" 0.013775
+
+# analyze measures R, the parent turns after a delegation, and must count
+# messages, not rows: msg_P3 and msg_P4 are two turns written as four rows.
+S3="$T/proj/33333333-2222-3333-4444-555555555555"
+mkdir -p "$S3/subagents" "$T/log3"
+cat > "$S3.jsonl" <<'EOF'
+{"type":"assistant","timestamp":"2026-01-01T00:00:01Z","message":{"id":"msg_P1","model":"claude-opus-5","usage":{"output_tokens":1}}}
+{"type":"assistant","timestamp":"2026-01-01T00:00:10Z","message":{"id":"msg_P3","model":"claude-opus-5","usage":{"output_tokens":1}}}
+{"type":"assistant","timestamp":"2026-01-01T00:00:11Z","message":{"id":"msg_P3","model":"claude-opus-5","usage":{"output_tokens":9}}}
+{"type":"assistant","timestamp":"2026-01-01T00:00:20Z","message":{"id":"msg_P4","model":"claude-opus-5","usage":{"output_tokens":1}}}
+{"type":"assistant","timestamp":"2026-01-01T00:00:21Z","message":{"id":"msg_P4","model":"claude-opus-5","usage":{"output_tokens":9}}}
+EOF
+echo '{"type":"assistant","timestamp":"2026-01-01T00:00:05Z","message":{"id":"msg_W1","model":"claude-haiku-4-5-20251001","usage":{"output_tokens":5}}}' \
+  > "$S3/subagents/agent-r1.jsonl"
+echo '{"agentType":"haiku-shunt:bulk-reader"}' > "$S3/subagents/agent-r1.meta.json"
+SHUNT_LOG_DIR="$T/log3" "$P/bin/haiku-shunt" analyze "$S3.jsonl" --write >/dev/null
+chk "analyze: R counts messages after the delegation, not rows" \
+  "$(jq -r .turns_remaining "$T"/log3/events-*.jsonl)" 2
 
 # Resolving by session id must find the same file as the explicit path.
 chk "unknown session id fails loudly" \

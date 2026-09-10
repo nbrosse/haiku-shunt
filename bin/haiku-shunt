@@ -175,18 +175,18 @@ def cmd_report(a):
     avoided = sum(h.get("est_tokens_avoided") or 0 for h in denies)
     uncapped = sum(h.get("est_tokens_uncapped") or 0 for h in denies)
 
-    # A code-writer delegation is not triggered by a deny, so it pays no deny
-    # reason, and what it saves is on the OUTPUT side. Keep the two apart.
+    # A code-writer delegation saves on the OUTPUT side; keep it apart from reads.
     writes = [d for d in dels if agent_base(d) == "code-writer"]
-    reads = [d for d in dels if agent_base(d) != "code-writer"]
 
     def summ(d):   # measured from the worker's last message when we have it
         m = d.get("summary_tokens")
         return m if isinstance(m, int) else a.summary_tokens   # 0 is a measurement
 
-    overhead_tok = (sum(a.deny_reason_tokens + a.task_prompt_tokens + summ(d) for d in reads)
-                    + sum(a.task_prompt_tokens + summ(d) for d in writes)) \
-        if dels else a.deny_reason_tokens * len(denies)
+    # Every deny puts its reason in the parent's context, whether the model then
+    # delegates or (more often) pages with windowed reads. Every delegation adds
+    # its prompt and the summary it returns. The two are independent counts.
+    overhead_tok = (a.deny_reason_tokens * len(denies)
+                    + sum(a.task_prompt_tokens + summ(d) for d in dels))
 
     # What the parent did not have to generate. The worker's own output stands
     # in for it, minus the summary it sent back - a proxy, not a measurement of
@@ -333,6 +333,24 @@ def read_rows(path):
             if l.strip().startswith("{")]
 
 
+def assistant_turns(rows):
+    """Start time of each assistant message, one entry per message.
+
+    Claude Code writes one row per content block, so counting rows counts a
+    single turn several times -- and R, which every saving scales with, would
+    be inflated by the same factor. Rows without a message.id fall back to
+    their own uuid, i.e. count once each."""
+    first = {}
+    for i, r in enumerate(rows):
+        if r.get("type") != "assistant":
+            continue
+        key = (r.get("message") or {}).get("id") or r.get("uuid") or f"row{i}"
+        ts = r.get("timestamp")
+        if key not in first or (ts and (not first[key] or ts < first[key])):
+            first[key] = ts
+    return first
+
+
 def session_cost(transcript):
     """What a session actually cost, parent plus every subagent it spawned,
     taken from the transcripts' own usage rows.
@@ -344,7 +362,7 @@ def session_cost(transcript):
     free, since that is exactly where its cost went."""
     rows = read_rows(transcript)
     parent = aggregate_usage(rows)
-    turns = sum(1 for r in rows if r.get("type") == "assistant")
+    turns = len(assistant_turns(rows))
     workers = []
     sub = os.path.join(os.path.splitext(transcript)[0], "subagents")
     for tf in sorted(glob.glob(os.path.join(sub, "agent-*.jsonl"))):
@@ -418,15 +436,10 @@ def cmd_analyze(a):
         sub = os.path.join(os.path.splitext(t)[0], "subagents")
         if not os.path.isdir(sub):
             continue
-        parent = [json.loads(l) for l in open(t, errors="replace")
-                  if l.strip().startswith("{")]
+        parent = read_rows(t)
         # Parent assistant turns, deduped, in order -- used to count how many
         # turns each delegation's saving actually compounds over.
-        turns = []
-        for r in parent:
-            if r.get("type") == "assistant" and r.get("timestamp"):
-                turns.append(r["timestamp"])
-        turns.sort()
+        turns = sorted(ts for ts in assistant_turns(parent).values() if ts)
 
         results = {}
         for r in parent:

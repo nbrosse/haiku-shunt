@@ -69,9 +69,15 @@ where it differs from upstream:
 | `tail -n +4900 huge.txt` | allow — only 101 of 5000 lines | block |
 | `cat f 2>/dev/null` | deny — only stderr is redirected; stdout still reaches the model | allow |
 | `cd sub && cat big.txt` | deny — `cd` is tracked | allow |
+| `head -5 small.txt; cat big.txt` | deny — every segment is checked | allow |
+| `cat big.txt \| cat` | deny — a copy is not a filter | allow |
+| `cat big.txt \| grep x` | allow — filtered | allow |
 
-Piped, redirected and heredoc commands are allowed: their output does not reach
-the model. So are `grep`, `sed`, `awk`, `git show` and `python -c open(...)` —
+Every segment of a command is checked. A read whose stdout is redirected, or
+piped into a filter (`grep`, `wc`, `sort`, …), is allowed: the file does not
+reach the model. A pipe through a copy (`| cat`, `| tee f`, `| less`) does, so
+it is checked like the bare read; `| head -N` caps it at N lines. Heredocs are
+allowed. So are `grep`, `sed`, `awk`, `git show` and `python -c open(...)` —
 see [Non-goals](#non-goals).
 
 **Fail-open is the invariant.** Malformed input, an unparseable command, a
@@ -283,7 +289,7 @@ visible.
 ## Development
 
 ```bash
-bash evals/run.sh              # 203 offline cases: hooks, recursion, robustness, cost math
+bash evals/run.sh              # 220 offline cases: hooks, recursion, robustness, cost math
 bash evals/run.sh -v --hook bash --filter head
 claude plugin validate --strict .
 ```

@@ -123,6 +123,17 @@ EOF
 near "measured summary drives overhead" \
   "$(jq -r .overhead_usd <<<"$(rep --parent claude-sonnet-5 --turns 10 --cache-hit 1.0)")" 0.005580
 
+# Every deny pays its reason, not just the ones that led to a delegation: the
+# model usually answers a deny with windowed reads. 3 denies, 1 delegation:
+#   (3*140 deny + 200 prompt + 300 summary) * $2.00 * 2.25 / 1e6 = 0.004140
+: > "$LOG"
+for i in 1 2 3; do
+  echo '{"v":1,"ts":"2026-01-01T00:00:00.000Z","event":"hook_decision","hook":"read_guard","decision":"deny","reason_code":"over_threshold","est_tokens_avoided":40000,"est_tokens_uncapped":40000,"latency_ms":10,"paths":[]}' >> "$LOG"
+done
+echo '{"v":1,"ts":"2026-01-01T00:00:01.000Z","event":"delegation","phase":"stop","worker_agent_id":"w1","worker_agent_base":"bulk-reader","usage":{"requests":1,"model":"claude-haiku-4-5-20251001","input_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":0}}' >> "$LOG"
+near "deny reason charged per deny, not per delegation" \
+  "$(jq -r .overhead_usd <<<"$(rep --parent claude-sonnet-5 --turns 10 --cache-hit 1.0)")" 0.004140
+
 # code-writer: the saving is on the OUTPUT side, and it pays no deny reason.
 #   content  = 5000 output - 200 summary                    = 4800
 #   saving   = 4800 * ($10.00 out + $2.00 in * 2.25) / 1e6  = 0.069600

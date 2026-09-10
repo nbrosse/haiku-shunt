@@ -4,17 +4,27 @@
 Only reached when the bash fast-path has already seen a reader command name,
 so the interpreter start-up is not on the hot path.
 
+Every segment of the command is examined, not just the first reader: in
+`head -5 small; cat big` it is the second one that matters. A reader whose
+stdout is redirected, or piped into a filter (grep, wc, ...), is skipped; one
+piped only through copies (`| cat`, `| tee f`, `| head -N`) still reaches the
+model and is checked, with any `head`/`tail` bound applied.
+
 Emits one JSON object on stdout:
   {"verdict": "check"|"allow", "reason": <reason_code>,
-   "reader": <cmd|null>, "files": [abs...], "bound_lines": <int|null>}
+   "files": [{"path": abs, "reader": cmd,
+              "bound_lines": <int|null>, "from_line": <int|null>}, ...]}
 
 "check" means: probe these files and apply the thresholds.
-"allow" means: stop, this command never puts the file in front of the model.
+"allow" means: stop, nothing in this command puts a file in front of the
+model; "reason" says why the first reader found was not a candidate.
 """
 import json, os, shlex, sys
 
 READERS = {"cat", "less", "more", "bat"}
 BOUNDED = {"head", "tail"}
+# Pipe stages that copy stdin to stdout unchanged (tee's operands are outputs).
+PASSTHROUGH = READERS | {"tee"}
 # Stripped before looking for the real command.
 PREFIXES = {"sudo", "env", "command", "builtin", "exec", "nice", "ionice",
             "timeout", "stdbuf", "nohup", "time"}
@@ -269,33 +279,57 @@ def safe_int(v):
         return None
 
 
-def out(verdict, reason, reader=None, files=(), bound=None, from_line=None):
-    print(json.dumps({"verdict": verdict, "reason": reason, "reader": reader,
-                      "files": list(files), "bound_lines": bound,
-                      "from_line": from_line}))
+def out(verdict, reason, files=()):
+    print(json.dumps({"verdict": verdict, "reason": reason, "files": list(files)}))
     sys.exit(0)
+
+
+def words_of(seg):
+    """The segment's command words, prefixes stripped. None if unparseable."""
+    try:
+        return strip_prefixes(shlex.split(seg.text.strip(), posix=True))
+    except ValueError:
+        return None                              # unbalanced quotes
+
+
+def through_pipe(stages, i, bound):
+    """Follow a reader's stdout down its pipeline. Returns the bound that
+    survives to the end if the content still reaches the model, else the
+    reason it does not ("piped" into a filter, or "redirected")."""
+    while stages[i][0].piped_out:
+        i += 1
+        if i >= len(stages):
+            return "piped"
+        seg, words = stages[i]
+        if not words or seg.subst or seg.heredoc:
+            return "piped"
+        base = os.path.basename(words[0])
+        if base not in PASSTHROUGH and base not in BOUNDED:
+            return "piped"                       # grep, wc, sort...: see Non-goals
+        if base != "tee":
+            b, from_line, operands = parse_bounds(base, words[1:])
+            if b == "follow" or (operands and "-" not in operands):
+                return "piped"                   # reads its own files, not stdin
+            if base in BOUNDED and from_line is None and b is not None:
+                bound = b if bound is None else min(bound, b)
+        if seg.redirected:
+            return "redirected"
+    return bound
 
 
 def main():
     cmd = sys.stdin.read()
     cwd = sys.argv[1] if len(sys.argv) > 1 else os.getcwd()
     try:
-        segs = scan(cmd)
+        stages = [(s, words_of(s)) for s in scan(cmd)]
     except Exception:
         out("allow", "internal_error")
 
-    for seg in segs:
-        text = seg.text.strip()
-        if not text:
+    files, skipped = [], None
+    for i, (seg, words) in enumerate(stages):
+        if words is None:
+            skipped = skipped or "unresolvable_arg"
             continue
-        try:
-            words = shlex.split(text, posix=True)
-        except ValueError:
-            out("allow", "unresolvable_arg")     # unbalanced quotes
-        if not words:
-            continue
-
-        words = strip_prefixes(words)
         if not words:
             continue
         base = os.path.basename(words[0])
@@ -308,33 +342,40 @@ def main():
         if base not in READERS and base not in BOUNDED:
             continue
 
+        # Why this reader never puts a file on the model's stdout, if it doesn't.
+        reason, bound, from_line, operands = None, None, None, []
         if seg.heredoc:
-            out("allow", "heredoc", base)
-        if seg.piped_out:
-            out("allow", "piped", base)
-        if seg.redirected:
-            out("allow", "redirected", base)
-        if seg.subst:
-            out("allow", "unresolvable_arg", base)
+            reason = "heredoc"
+        elif seg.redirected:
+            reason = "redirected"
+        elif seg.subst:
+            reason = "unresolvable_arg"
+        else:
+            bound, from_line, operands = parse_bounds(base, words[1:])
+            if seg.stdin_file:
+                operands = operands + [seg.stdin_file]
+            if bound == "follow":
+                reason = "not_a_reader_command"  # never block a follow
+            elif not operands:
+                reason = "no_file_operand"
+            elif any(c in o for o in operands for c in "$*?["):
+                reason = "unresolvable_arg"      # do not glob in a hook
+            elif seg.piped_out:
+                bound = through_pipe(stages, i, bound)
+                if isinstance(bound, str):
+                    reason = bound
+        if reason:
+            skipped = skipped or reason
+            continue
 
-        bound, from_line, operands = parse_bounds(base, words[1:])
-        if bound == "follow":
-            out("allow", "not_a_reader_command", base)   # never block a follow
-
-        if seg.stdin_file:
-            operands = operands + [seg.stdin_file]
-        if not operands:
-            out("allow", "no_file_operand", base)
-
-        files = []
         for o in operands:
-            if "$" in o or "*" in o or "?" in o or "[" in o:
-                out("allow", "unresolvable_arg", base)   # do not glob in a hook
             p = os.path.expanduser(o)
-            files.append(p if os.path.isabs(p) else os.path.normpath(os.path.join(cwd, p)))
-        out("check", "candidate", base, files, bound, from_line)
+            files.append({"path": p if os.path.isabs(p) else os.path.normpath(os.path.join(cwd, p)),
+                          "reader": base, "bound_lines": bound, "from_line": from_line})
 
-    out("allow", "not_a_reader_command")
+    if files:
+        out("check", "candidate", files)
+    out("allow", skipped or "not_a_reader_command")
 
 
 if __name__ == "__main__":

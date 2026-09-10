@@ -733,7 +733,7 @@
     {
       "name": "piped_to_head",
       "hook": "bash",
-      "why": "",
+      "why": "head -5 at the end of the pipe bounds the output: checked, and under",
       "input": {
         "hook_event_name": "PreToolUse",
         "tool_name": "Bash",
@@ -746,7 +746,246 @@
       },
       "expect": {
         "decision": "none",
+        "reason_code": "under_threshold"
+      },
+      "fixtures": {
+        "b": {
+          "mode": "seq",
+          "lines": 500,
+          "name": "big.txt"
+        }
+      }
+    },
+    {
+      "name": "redirected_then_plain_read",
+      "hook": "bash",
+      "why": "the second segment still dumps the file",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "session_id": "redirected_then_plain_read",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "command": "cat @FIX:b@ >/dev/null; cat @FIX:b@"
+        }
+      },
+      "expect": {
+        "decision": "deny",
+        "reason_code": "over_threshold"
+      },
+      "fixtures": {
+        "b": {
+          "mode": "seq",
+          "lines": 500,
+          "name": "big.txt"
+        }
+      }
+    },
+    {
+      "name": "small_head_then_big_cat",
+      "hook": "bash",
+      "why": "every segment is checked, not just the first reader",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "session_id": "small_head_then_big_cat",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "command": "head -5 @FIX:s@; cat @FIX:b@"
+        }
+      },
+      "expect": {
+        "decision": "deny",
+        "reason_code": "over_threshold"
+      },
+      "fixtures": {
+        "b": {
+          "mode": "seq",
+          "lines": 500,
+          "name": "big.txt"
+        },
+        "s": {
+          "mode": "seq",
+          "lines": 10,
+          "name": "small.txt"
+        }
+      }
+    },
+    {
+      "name": "piped_through_cat",
+      "hook": "bash",
+      "why": "| cat copies the file to stdout unchanged",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "session_id": "piped_through_cat",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "command": "cat @FIX:b@ | cat"
+        }
+      },
+      "expect": {
+        "decision": "deny",
+        "reason_code": "over_threshold"
+      },
+      "fixtures": {
+        "b": {
+          "mode": "seq",
+          "lines": 500,
+          "name": "big.txt"
+        }
+      }
+    },
+    {
+      "name": "piped_through_tee",
+      "hook": "bash",
+      "why": "tee writes the file AND stdout",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "session_id": "piped_through_tee",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "command": "cat @FIX:b@ | tee @FIX@/copy.txt"
+        }
+      },
+      "expect": {
+        "decision": "deny",
+        "reason_code": "over_threshold"
+      },
+      "fixtures": {
+        "b": {
+          "mode": "seq",
+          "lines": 500,
+          "name": "big.txt"
+        }
+      }
+    },
+    {
+      "name": "piped_through_less",
+      "hook": "bash",
+      "why": "a pager is a pass-through",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "session_id": "piped_through_less",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "command": "cat @FIX:b@ | less"
+        }
+      },
+      "expect": {
+        "decision": "deny",
+        "reason_code": "over_threshold"
+      },
+      "fixtures": {
+        "b": {
+          "mode": "seq",
+          "lines": 500,
+          "name": "big.txt"
+        }
+      }
+    },
+    {
+      "name": "piped_through_head_5000",
+      "hook": "bash",
+      "why": "the downstream bound is larger than the file",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "session_id": "piped_through_head_5000",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "command": "cat @FIX:b@ | head -n 5000"
+        }
+      },
+      "expect": {
+        "decision": "deny",
+        "reason_code": "over_threshold"
+      },
+      "fixtures": {
+        "b": {
+          "mode": "seq",
+          "lines": 500,
+          "name": "big.txt"
+        }
+      }
+    },
+    {
+      "name": "piped_through_cat_then_redirected",
+      "hook": "bash",
+      "why": "the last stage's stdout goes to a file",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "session_id": "piped_through_cat_then_redirected",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "command": "cat @FIX:b@ | cat > @FIX@/o"
+        }
+      },
+      "expect": {
+        "decision": "none",
+        "reason_code": "redirected"
+      },
+      "fixtures": {
+        "b": {
+          "mode": "seq",
+          "lines": 500,
+          "name": "big.txt"
+        }
+      }
+    },
+    {
+      "name": "piped_through_cat_then_grep",
+      "hook": "bash",
+      "why": "grep at the end filters: see Non-goals",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "session_id": "piped_through_cat_then_grep",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "command": "cat @FIX:b@ | cat | grep x"
+        }
+      },
+      "expect": {
+        "decision": "none",
         "reason_code": "piped"
+      },
+      "fixtures": {
+        "b": {
+          "mode": "seq",
+          "lines": 500,
+          "name": "big.txt"
+        }
+      }
+    },
+    {
+      "name": "tail_from_then_head",
+      "hook": "bash",
+      "why": "from-line and a downstream bound combine",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "session_id": "tail_from_then_head",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "command": "tail -n +10 @FIX:b@ | head -3"
+        }
+      },
+      "expect": {
+        "decision": "none",
+        "reason_code": "under_threshold"
       },
       "fixtures": {
         "b": {
