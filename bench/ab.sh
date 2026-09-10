@@ -140,7 +140,7 @@ one_run() { # $1 rep  $2 arm index
   printf '%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n' "$rep" "$name" "$sid" "$ok" "$wall" \
     "${turns:-}" "${total:-}" "${haiku:-}" "${denies:-0}" "$dels" >> "$OUT"
   if [ -n "${total:-}" ]; then
-    printf '  rep %s %-8s ok=%s  %6ss  %3s turns  $%-10s (%s denies, %s delegations)\n' \
+    printf '  rep %s %-8s ok=%s  %6ss  %3s turns  $%-8.4f (%s denies, %s delegations)\n' \
       "$rep" "$name" "$ok" "$wall" "${turns:-?}" "$total" "${denies:-0}" "$dels"
   else
     printf '  rep %s %-8s ok=%s  %6ss  NO COST IN OUTPUT (rc=%s, see %s)\n' \

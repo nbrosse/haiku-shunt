@@ -54,8 +54,10 @@ Then read a file over 350 lines and watch what happens.
 **Read hook.** Denies a full-file `Read` when the file is over `SHUNT_MIN_LINES`
 (350) *and* over `SHUNT_MIN_BYTES` (8000), or over `SHUNT_MAX_BYTES` (200 KB)
 regardless of line count — a minified 2 MB bundle is one line and would sail
-past a line-only threshold. A `Read` with `offset`/`limit` is always allowed: it
-is what we tell the model to do after a deny, and it is what editing requires.
+past a line-only threshold. A windowed `Read` — a `limit` of at most
+`SHUNT_MIN_LINES` lines — is always allowed: it is what we tell the model to do
+after a deny, and it is what editing requires. A larger `limit` is a full read
+by another name, and is denied like one.
 
 **Bash hook.** Catches `cat`/`less`/`more`/`bat` dumps that bypass the Read
 tool. It treats a *bounded* read as equivalent to `Read(limit=N)`, which is
@@ -242,10 +244,16 @@ visible.
 
 ## Known limits
 
-- **After a deny, the model reliably picks windowed reads over delegating**, or
-  retries the full read until the deny cap lets it through. In every unprompted
-  live run so far it never chose option 1 — delegation happens when asked for
-  by name. Only an A/B says whether the denies still pay for themselves.
+- **After a deny, the model may page through the whole file instead of
+  delegating.** With the original deny message it always did: the message
+  promised that windowed reads were always allowed, the model sent windows
+  larger than the threshold, and the deny cap let them through. The message now
+  states the window limit and warns against paging; the first smoke run after
+  that change delegated unprompted. One run is not a measurement — only an A/B
+  on a real task says how often it happens and whether the denies pay for
+  themselves.
+- `Read` with an `offset` and no `limit` is allowed and returns up to ~2000
+  lines, so it is a way around the threshold.
 - `bash -c "cat big.txt"` is not inspected.
 - Token estimates in the log are `chars/4`, ±15% on source code. They feed
   nothing but the size buckets.

@@ -44,9 +44,12 @@ PY
   ( cd "$TASK_REPO" && git init -q . && git add -A && git commit -qm fixture )
 fi
 
-TASK_PROMPT="Read service.py and answer both: (1) which Handler classes have
-MAX_ATTEMPTS equal to 6, and (2) what BASE_DELAY does Handler37 use? Use the
-Read tool, not grep or shell commands."
+# No Grep and no shell, so the answer has to come from reading the file and the
+# Read hook fires. Do NOT name the Read tool: "use Read" is taken literally and
+# rules out delegating to bulk-reader, which is the path this smoke must allow.
+TASK_PROMPT="Answer both questions about service.py: (1) which Handler classes
+have MAX_ATTEMPTS equal to 6, and (2) what BASE_DELAY does Handler37 use? Do not
+use Grep or shell commands to search the file."
 
 task_reset() { git -C "$TASK_REPO" checkout -- . 2>/dev/null; git -C "$TASK_REPO" clean -fdq 2>/dev/null; }
 

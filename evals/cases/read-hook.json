@@ -889,6 +889,60 @@
           "lines": 500
         }
       }
+    },
+    {
+      "name": "deny_reason_states_window_limit",
+      "hook": "read",
+      "why": "the model sent limit=670 after being told windows were always allowed",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Read",
+        "session_id": "deny_reason_states_window_limit",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "file_path": "@FIX:f@"
+        }
+      },
+      "expect": {
+        "decision": "deny",
+        "reason_matches": "limit of at most 200 lines",
+        "reason_not_matches": "always allowed, and you need one anyway before editing\\.$"
+      },
+      "fixtures": {
+        "f": {
+          "mode": "seq",
+          "lines": 500
+        }
+      },
+      "env": {
+        "SHUNT_MIN_LINES": "200"
+      }
+    },
+    {
+      "name": "deny_reason_warns_against_paging",
+      "hook": "read",
+      "why": "paging the whole file in windows defeats the shunt",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Read",
+        "session_id": "deny_reason_warns_against_paging",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "file_path": "@FIX:f@"
+        }
+      },
+      "expect": {
+        "decision": "deny",
+        "reason_matches": "Do not page through the whole file"
+      },
+      "fixtures": {
+        "f": {
+          "mode": "seq",
+          "lines": 500
+        }
+      }
     }
   ]
 }
