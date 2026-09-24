@@ -32,6 +32,11 @@ PREFIX_TAKES_ARG = {"nice": {"-n"}, "ionice": {"-c", "-n"}, "timeout": {"-k", "-
                     "stdbuf": {"-i", "-o", "-e"}}
 
 
+# Redirection targets that still land in the Bash tool's output, which carries
+# stderr as well as stdout: `cat big >&2` is as much a dump as `cat big`.
+TO_MODEL = {"&1", "&2", "/dev/stdout", "/dev/stderr", "/dev/fd/1", "/dev/fd/2"}
+
+
 class Seg:
     __slots__ = ("text", "piped_out", "redirected", "heredoc", "subst", "stdin_file")
 
@@ -50,6 +55,7 @@ def scan(cmd):
     segs, cur = [], Seg()
     i, n = 0, len(cmd)
     sq = dq = False
+    pending = []    # heredoc delimiters whose bodies start at the next newline
 
     def flush():
         nonlocal cur
@@ -72,6 +78,20 @@ def scan(cmd):
                 break
             j += 1
         return cmd[start:j], j
+
+    def skip_bodies(j):
+        """j is just past a newline: skip each pending heredoc body, up to and
+        including its delimiter line. An unterminated body runs to the end."""
+        for delim, strip_tabs in pending:
+            while j < n:
+                end = cmd.find("\n", j)
+                end = n if end < 0 else end
+                line = cmd[j:end]
+                j = end + 1
+                if (line.lstrip("\t") if strip_tabs else line) == delim:
+                    break
+        pending.clear()
+        return min(j, n)
 
     while i < n:
         c = cmd[i]
@@ -120,35 +140,48 @@ def scan(cmd):
                 i += 1
             continue
         if cmd.startswith("&>", i):
-            cur.redirected = True
-            _, i = eat_target(i + 2)
+            j = i + 2 + cmd.startswith("&>>", i)
+            tgt, i = eat_target(j)
+            if tgt not in TO_MODEL:
+                cur.redirected = True
+            continue
+        if cmd.startswith("<<<", i):
+            # Herestring: stdin is a literal word, not a file.
+            cur.heredoc = True
+            _, i = eat_target(i + 3)
             continue
         if cmd.startswith("<<", i):
             # Heredoc: the body is data, not a file read, and must never be
-            # rescanned for commands it happens to mention.
+            # rescanned for commands it happens to mention. Parsing resumes
+            # after its delimiter line: `cat <<EOF ... EOF` then `cat big`.
             cur.heredoc = True
-            return segs + [cur]
+            j = i + 2
+            strip_tabs = j < n and cmd[j] == "-"
+            word, i = eat_target(j + strip_tabs)
+            pending.append((word.replace("'", "").replace('"', "").replace("\\", ""),
+                            strip_tabs))
+            continue
         if c == "<":
             # `cat < big` still dumps the file to stdout.
             tgt, i = eat_target(i + 1)
             cur.stdin_file = tgt
             continue
         if c == ">":
+            # An fd number only counts as one when it is a whole word:
+            # `2>x` redirects stderr, `file2>x` redirects stdout.
+            prev = cmd[i - 1] if i and cmd[i - 1].isdigit() and \
+                (i < 2 or cmd[i - 2] in " \t;&|(") else ""
             j = i
             while j < n and cmd[j] == ">":
                 j += 1
-            prev = cmd[i - 1] if i else ""
+            dup = j < n and cmd[j] == "&"          # >&2, 1>&2
+            tgt, i = eat_target(j + dup)
+            tgt = ("&" + tgt) if dup else tgt
             # 2>/dev/null redirects only stderr; stdout still reaches the model.
-            fd_is_stderr = prev.isdigit() and prev != "1"
-            if fd_is_stderr:
-                # drop the trailing fd digit we already appended
-                if cur.text.endswith(prev):
-                    cur.text = cur.text[:-1]
-            else:
+            if prev:
+                cur.text = cur.text[:-1]          # the fd digit is not a word
+            if prev in ("", "1") and tgt not in TO_MODEL:
                 cur.redirected = True
-                if cur.text.endswith("1") or cur.text.endswith("&"):
-                    cur.text = cur.text[:-1]
-            _, i = eat_target(j)
             continue
         if c == "|":
             if cmd.startswith("||", i):
@@ -166,6 +199,8 @@ def scan(cmd):
         if c in ";&\n":
             flush()
             i += 1
+            if c == "\n" and pending:
+                i = skip_bodies(i)
             continue
         cur.text += c
         i += 1

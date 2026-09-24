@@ -79,6 +79,15 @@ echo "results -> $OUT"
 # Delegations to our workers, counted from the subagent metadata Claude Code
 # writes next to the session transcript. Plugin agents are namespaced
 # ("haiku-shunt:bulk-reader"), so compare the base name.
+#
+# Only the metadata is read, never the transcripts, and cost comes from
+# Claude Code's own JSON. Two traps met when an earlier version priced the
+# transcripts by hand:
+# - Claude Code writes one line per content block and repeats the message's
+#   usage on each, with output_tokens growing block to block. Summing the
+#   lines overcounts; taking the first undercounts. Dedupe on message.id and
+#   keep the last line.
+# - SubagentStop fires before the worker's last message reaches the disk.
 count_delegations() { # $1 session id
   local m n=0
   for m in "$HOME"/.claude/projects/*/"$1"/subagents/agent-*.meta.json; do

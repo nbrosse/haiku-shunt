@@ -2173,6 +2173,292 @@
           "name": "big.txt"
         }
       }
+    },
+    {
+      "name": "redirect_to_stderr",
+      "hook": "bash",
+      "why": "the Bash tool returns stderr too, so this still reaches the model",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "session_id": "redirect_to_stderr",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "command": "cat @FIX:b@ >&2"
+        }
+      },
+      "expect": {
+        "decision": "deny",
+        "reason_code": "over_threshold"
+      },
+      "fixtures": {
+        "b": {
+          "mode": "seq",
+          "lines": 500,
+          "name": "big.txt"
+        }
+      }
+    },
+    {
+      "name": "redirect_fd1_to_stderr",
+      "hook": "bash",
+      "why": "the Bash tool returns stderr too, so this still reaches the model",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "session_id": "redirect_fd1_to_stderr",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "command": "cat @FIX:b@ 1>&2"
+        }
+      },
+      "expect": {
+        "decision": "deny",
+        "reason_code": "over_threshold"
+      },
+      "fixtures": {
+        "b": {
+          "mode": "seq",
+          "lines": 500,
+          "name": "big.txt"
+        }
+      }
+    },
+    {
+      "name": "redirect_to_dev_stdout",
+      "hook": "bash",
+      "why": "the Bash tool returns stderr too, so this still reaches the model",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "session_id": "redirect_to_dev_stdout",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "command": "cat @FIX:b@ > /dev/stdout"
+        }
+      },
+      "expect": {
+        "decision": "deny",
+        "reason_code": "over_threshold"
+      },
+      "fixtures": {
+        "b": {
+          "mode": "seq",
+          "lines": 500,
+          "name": "big.txt"
+        }
+      }
+    },
+    {
+      "name": "redirect_both_to_dev_stderr",
+      "hook": "bash",
+      "why": "the Bash tool returns stderr too, so this still reaches the model",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "session_id": "redirect_both_to_dev_stderr",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "command": "cat @FIX:b@ &> /dev/stderr"
+        }
+      },
+      "expect": {
+        "decision": "deny",
+        "reason_code": "over_threshold"
+      },
+      "fixtures": {
+        "b": {
+          "mode": "seq",
+          "lines": 500,
+          "name": "big.txt"
+        }
+      }
+    },
+    {
+      "name": "redirect_append_both",
+      "hook": "bash",
+      "why": "stdout and stderr both go to a file",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "session_id": "redirect_append_both",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "command": "cat @FIX:b@ &>> @FIX@/log"
+        }
+      },
+      "expect": {
+        "decision": "none",
+        "reason_code": "redirected"
+      },
+      "fixtures": {
+        "b": {
+          "mode": "seq",
+          "lines": 500,
+          "name": "big.txt"
+        }
+      }
+    },
+    {
+      "name": "stderr_to_stdout_then_file",
+      "hook": "bash",
+      "why": "stdout ends in a file",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "session_id": "stderr_to_stdout_then_file",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "command": "cat @FIX:b@ 2>&1 >@FIX@/out"
+        }
+      },
+      "expect": {
+        "decision": "none",
+        "reason_code": "redirected"
+      },
+      "fixtures": {
+        "b": {
+          "mode": "seq",
+          "lines": 500,
+          "name": "big.txt"
+        }
+      }
+    },
+    {
+      "name": "digit_in_filename_is_not_fd",
+      "hook": "bash",
+      "why": "`big2.txt>` is a stdout redirect, not fd 2",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "session_id": "digit_in_filename_is_not_fd",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "command": "cat @FIX@/big2.txt>@FIX@/out"
+        }
+      },
+      "expect": {
+        "decision": "none",
+        "reason_code": "redirected"
+      },
+      "fixtures": {
+        "b": {
+          "mode": "seq",
+          "lines": 500,
+          "name": "big.txt"
+        }
+      }
+    },
+    {
+      "name": "herestring_then_read",
+      "hook": "bash",
+      "why": "a herestring must not end the parse",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "session_id": "herestring_then_read",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "command": "grep x <<< \"a\"; cat @FIX:b@"
+        }
+      },
+      "expect": {
+        "decision": "deny",
+        "reason_code": "over_threshold"
+      },
+      "fixtures": {
+        "b": {
+          "mode": "seq",
+          "lines": 500,
+          "name": "big.txt"
+        }
+      }
+    },
+    {
+      "name": "read_after_heredoc",
+      "hook": "bash",
+      "why": "parsing resumes after the heredoc delimiter",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "session_id": "read_after_heredoc",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "command": "cat <<EOF\nhi\nEOF\ncat @FIX:b@"
+        }
+      },
+      "expect": {
+        "decision": "deny",
+        "reason_code": "over_threshold"
+      },
+      "fixtures": {
+        "b": {
+          "mode": "seq",
+          "lines": 500,
+          "name": "big.txt"
+        }
+      }
+    },
+    {
+      "name": "heredoc_dash_body_skipped",
+      "hook": "bash",
+      "why": "<<- strips leading tabs from the delimiter line",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "session_id": "heredoc_dash_body_skipped",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "command": "cat <<-'EOF'\n\tcat @FIX:b@\n\tEOF"
+        }
+      },
+      "expect": {
+        "decision": "none",
+        "reason_code": "heredoc"
+      },
+      "fixtures": {
+        "b": {
+          "mode": "seq",
+          "lines": 500,
+          "name": "big.txt"
+        }
+      }
+    },
+    {
+      "name": "heredoc_quoted_delim_then_read",
+      "hook": "bash",
+      "why": "quoted delimiter, then a real read",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "session_id": "heredoc_quoted_delim_then_read",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "command": "python3 - <<'PY'\nprint(1)\nPY\ncat @FIX:b@"
+        }
+      },
+      "expect": {
+        "decision": "deny",
+        "reason_code": "over_threshold"
+      },
+      "fixtures": {
+        "b": {
+          "mode": "seq",
+          "lines": 500,
+          "name": "big.txt"
+        }
+      }
     }
   ]
 }

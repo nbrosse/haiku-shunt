@@ -78,25 +78,36 @@ def load_events(since_days=None):
     return out
 
 
-def rate(model, key):
+def model_entry(model):
+    """Exact id first, else the longest configured prefix: `claude-opus-5-5[1m]`
+    must price as claude-opus-5-5, not as claude-opus-5."""
     m = PRICE["models"].get(model)
-    if not m:
-        for k, v in PRICE["models"].items():
-            if model and model.startswith(k):
-                m = v
-                break
-    return (m or PRICE["models"][PRICE["default_parent"]])[key]
+    if not m and model:
+        keys = sorted((k for k in PRICE["models"] if model.startswith(k)), key=len)
+        m = PRICE["models"][keys[-1]] if keys else None
+    return m or PRICE["models"][PRICE["default_parent"]]
 
 
-def parent_factor(turns, cache_hit):
+def rate(model, key):
+    return model_entry(model)[key]
+
+
+def cache_read(model):
+    """Cache-read multiplier: most models read at 0.10x input, some cheaper."""
+    return model_entry(model).get("cache_read", KR) if model else KR
+
+
+def parent_factor(turns, cache_hit, model=None):
     """Cost multiplier applied to tokens that enter the parent context.
 
     Content is cache-written once (2x: the main session uses the 1h TTL), then
-    re-sent on every later turn -- at the cache-read rate when it hits (0.10x)
-    and at full rate when it does not. This second term is where the saving
-    actually comes from.
+    re-sent on every later turn -- at the model's cache-read rate when it hits
+    (0.10x for most models). A miss is not billed at the plain input rate:
+    Claude Code caches every request, so a miss re-writes the prefix at the
+    parent's 1h write rate (2x). Transcripts show uncached input_tokens at
+    ~0% of input. This second term is where the saving actually comes from.
     """
-    mu = KR * cache_hit + 1.0 * (1.0 - cache_hit)
+    mu = cache_read(model) * cache_hit + KW_PARENT * (1.0 - cache_hit)
     return KW_PARENT + mu * turns
 
 
@@ -106,7 +117,7 @@ def breakeven_tokens(parent, turns, cache_hit, floor, worker_out=500):
     p_in = rate(parent, "input")
     h_in = rate(PRICE["default_worker"], "input")
     h_out = rate(PRICE["default_worker"], "output")
-    denom = p_in * parent_factor(turns, cache_hit) - KW_WORKER * h_in
+    denom = p_in * parent_factor(turns, cache_hit, parent) - KW_WORKER * h_in
     if denom <= 0:
         return None
     return (floor * KW_WORKER * h_in + worker_out * h_out) / denom
@@ -209,7 +220,7 @@ def cmd_doctor(a):
     floor, turns, hit = est["worker_floor_tokens"], est["assumed_turns_remaining"], \
         est["assumed_cache_hit_rate"]
     print(f"\nbreak-even (assumed: worker floor {floor:,} tok, R={turns}, h={hit})")
-    for parent in ("claude-sonnet-5", "claude-opus-5"):
+    for parent in PRICE.get("doctor_parents", [PRICE["default_parent"]]):
         be = breakeven_tokens(parent, turns, hit, floor)
         print(f"  break-even vs {parent:<18} {be:>8,.0f} tokens  (~{be/13:>5,.0f} lines)")
     cur = CFG["thresholds"]["min_lines"]
@@ -217,7 +228,7 @@ def cmd_doctor(a):
     if be_s and cur * 13 < be_s:
         print(f"\n  NOTE: SHUNT_MIN_LINES={cur} is below break-even for a Sonnet parent.")
         print(f"        Consider SHUNT_MIN_LINES={int(be_s/13)} on Sonnet; "
-              f"{cur} suits an Opus parent.")
+              f"{cur} suits an Opus or Fable parent.")
     print("  An order of magnitude, not a measurement: validate with bench/ab.sh --arm.")
 
     print("\nneeds one live delegation to confirm")

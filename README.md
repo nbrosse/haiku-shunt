@@ -79,12 +79,17 @@ where it differs from upstream:
 | `head -5 small.txt; cat big.txt` | deny — every segment is checked | allow |
 | `cat big.txt \| cat` | deny — a copy is not a filter | allow |
 | `cat big.txt \| grep x` | allow — filtered | allow |
+| `cat big.txt >&2` | deny — the Bash tool returns stderr too | allow |
+| `cat <<EOF … EOF` then `cat big.txt` | deny — parsing resumes after the heredoc | allow |
 
 Every segment of a command is checked. A read whose stdout is redirected, or
 piped into a filter (`grep`, `wc`, `sort`, …), is allowed: the file does not
 reach the model. A pipe through a copy (`| cat`, `| tee f`, `| less`) does, so
-it is checked like the bare read; `| head -N` caps it at N lines. Heredocs are
-allowed. So are `grep`, `sed`, `awk`, `git show` and `python -c open(...)` —
+it is checked like the bare read; `| head -N` caps it at N lines. So is a
+redirect that lands back in the tool output (`>&2`, `> /dev/stdout`,
+`&> /dev/stderr`): Claude Code returns stderr to the model as well. Heredoc
+and herestring bodies are data and are never scanned; parsing resumes after
+the delimiter line. So are `grep`, `sed`, `awk`, `git show` and `python -c open(...)` —
 see [Non-goals](#non-goals).
 
 **Fail-open is the invariant.** Malformed input, an unparseable command, a
@@ -102,11 +107,14 @@ re-sent ~37 more times, discounted to ~10% of the input rate by prompt caching.
 Keeping it out of the parent entirely is what compounds.
 
 ```
-C_avoided = T · P_in · (2 + μ·R) / 1e6      μ = 0.10h + 1.0(1−h)
+C_avoided = T · P_in · (2 + μ·R) / 1e6      μ = k·h + 2(1−h)
 ```
 
 `T` = tokens in the file, `R` = turns remaining after the read, `h` = cache-hit
-rate. The `2` is the cache write: Claude Code's main session uses the 1-hour
+rate, `k` = the parent's cache-read rate (0.10 for most models, 0.05 for Opus
+5.5, 0.025 for Fable 5.1). A miss costs `2`, not `1`: Claude Code caches every
+request, so a miss re-writes the prefix at the 1-hour rate — its transcripts
+show almost no uncached input. The `2` is the cache write: Claude Code's main session uses the 1-hour
 TTL, billed at 2× input (its subagents use the 5-minute one, 1.25×). At `R=0`
 only that write remains. The `μ·R` term is where the saving lives.
 
@@ -122,12 +130,17 @@ system-prompt cache write, ~14,600 tokens. Below some file size, delegating
 prices in `config/defaults.json`:
 
 ```
-break-even vs claude-sonnet-5       2,839 tokens  (~  218 lines)
-break-even vs claude-opus-5         1,030 tokens  (~   79 lines)
+break-even vs claude-sonnet-5       2,137 tokens  (~  164 lines)
+break-even vs claude-opus-5-5       1,121 tokens  (~   86 lines)
+break-even vs claude-opus-5           793 tokens  (~   61 lines)
+break-even vs claude-fable-5-1        457 tokens  (~   35 lines)
 ```
 
 It is an order of magnitude, from assumed `R=12` and `h=0.9`, and it needs no
-data. The default 350 lines is above break-even for both parents.
+data. The default 350 lines is above break-even for every parent listed.
+Cheaper cache reads (Opus 5.5 at 0.05× input, Fable 5.1 at 0.025×) raise the
+break-even: re-sending a cached file costs those parents less, so keeping it
+out saves less.
 
 ## The other direction: `code-writer`
 
@@ -216,6 +229,11 @@ Everything in `config/defaults.json`, overridable by environment variable:
 | `SHUNT_DISABLE` | — | `1` turns everything off |
 | `SHUNT_LOG_DIR` | plugin data dir | where `events-*.jsonl` goes |
 | `SHUNT_LOG_LOCK` | 0 | `1` adds `flock`; set this on NFS/CIFS |
+| `SHUNT_LOG_RETENTION_DAYS` | 30 | event logs and deny state older than this are deleted; `0` keeps everything |
+
+The event log records every Read and Bash call the hooks see, including the
+command text (up to 2,000 characters) and the working directory. Files are
+`0600` in a `0700` directory, and are pruned after `SHUNT_LOG_RETENTION_DAYS`.
 
 Prices live in `config/defaults.json` too, used only for `doctor`'s
 break-even. They change; benchmark costs come from Claude Code, not from here.
