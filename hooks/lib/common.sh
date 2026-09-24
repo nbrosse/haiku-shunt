@@ -39,11 +39,12 @@ CFG_MAX_DENIES=\(.thresholds.max_denies_per_path)
 CFG_DENY_TTL=\(.thresholds.deny_ttl_seconds)
 CFG_RETENTION=\(.logging.retention_days // 30)
 CFG_MODE=\(.policy.mode)
+CFG_OTHER=\(if .policy.shunt_other_agents == false then 0 else 1 end)
 CFG_WORKERS=\(.policy.worker_agents|join(" "))
 CFG_READERS=\(.policy.reader_commands|join(" "))
 CFG_EXT=\(.policy.exempt_extensions|join(" "))"' "$SHUNT_ROOT/config/defaults.json" 2>/dev/null) || cfg=""
   CFG_MIN_LINES=350; CFG_MIN_BYTES=8000; CFG_MAX_BYTES=200000; CFG_TRUNC=2000
-  CFG_MAX_DENIES=2; CFG_DENY_TTL=1800; CFG_RETENTION=30; CFG_MODE=deny
+  CFG_MAX_DENIES=2; CFG_DENY_TTL=1800; CFG_RETENTION=30; CFG_MODE=deny; CFG_OTHER=1
   CFG_WORKERS="bulk-reader code-writer"; CFG_READERS="cat less more bat head tail"; CFG_EXT=""
   [ -n "$cfg" ] && eval "$cfg"
 
@@ -55,7 +56,7 @@ CFG_EXT=\(.policy.exempt_extensions|join(" "))"' "$SHUNT_ROOT/config/defaults.js
   DENY_TTL=$(shunt_int "${SHUNT_DENY_TTL:-}" "$CFG_DENY_TTL")
   RETENTION_DAYS=$(shunt_int "${SHUNT_LOG_RETENTION_DAYS:-}" "$CFG_RETENTION")
   MODE="${SHUNT_MODE:-$CFG_MODE}"
-  SHUNT_OTHER="${SHUNT_SHUNT_OTHER_AGENTS:-1}"
+  SHUNT_OTHER="${SHUNT_SHUNT_OTHER_AGENTS:-$CFG_OTHER}"
   WORKER_AGENTS="$CFG_WORKERS"
   READER_CMDS="$CFG_READERS"
   EXEMPT_EXT="$CFG_EXT"

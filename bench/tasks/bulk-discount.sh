@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # A real benchmark task: long, multi-turn, big files read early.
 #
-# Builds a throwaway pricing package (~3,000 lines over three modules, all above
+# Builds a throwaway pricing package (~2,300 lines over three modules, all above
 # the shunt threshold), then asks for a feature that needs all three: a bulk
 # discount in the pricing engine, its tests, and a new field in the report.
 # The parent has to understand the rule pipeline before editing it, then keeps

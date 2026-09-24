@@ -16,7 +16,7 @@ a Haiku subagent. A Portal-free reimplementation of
      allow                   permissionDecision: "deny"
                                     │  the reason tells the model what to do instead
                                     ▼
-                     Task(subagent_type="bulk-reader")
+           Agent(subagent_type="haiku-shunt:bulk-reader")
                            model: claude-haiku-4-5
                            tools: Read, Grep, Glob
                                     │
@@ -27,8 +27,9 @@ a Haiku subagent. A Portal-free reimplementation of
                             Sonnet / Opus continues
 ```
 
-Spotify's version routes the worker through `portal-cli` → Spotify Portal/AiKA
-→ Gemini Flash, so cloning their repo does not give you a working backend. Here
+Spotify's version routes the worker through `portal-cli` to an AiKA mode on a
+Spotify Portal instance, so cloning their repo does not give you a working
+backend. Here
 the worker is a native Claude Code subagent. There is no service to sign up
 for, no API key, and no transport layer: context isolation is already what a
 subagent *is*.
@@ -72,8 +73,8 @@ where it differs from upstream:
 |---|---|---|
 | `head -100 big.txt` | allow — 100 lines is a windowed read | block |
 | `head -n 5 big.txt` | allow — bounded | allow, but by accident: their flag-stripper takes `5` as the filename |
-| `head -n 5000 big.txt` | deny — bounded but still the whole file | block |
-| `tail -n +4900 huge.txt` | allow — only 101 of 5000 lines | block |
+| `head -n 5000 big.txt` | deny — bounded but still the whole file | allow — same accident: `5000` is taken as the filename |
+| `tail -n +4900 huge.txt` | allow — only 101 of 5000 lines | allow, by the same accident (`+4900`) |
 | `cat f 2>/dev/null` | deny — only stderr is redirected; stdout still reaches the model | allow |
 | `cd sub && cat big.txt` | deny — `cd` is tracked | allow |
 | `head -5 small.txt; cat big.txt` | deny — every segment is checked | allow |
@@ -112,11 +113,13 @@ C_avoided = T · P_in · (2 + μ·R) / 1e6      μ = k·h + 2(1−h)
 
 `T` = tokens in the file, `R` = turns remaining after the read, `h` = cache-hit
 rate, `k` = the parent's cache-read rate (0.10 for most models, 0.05 for Opus
-5.5, 0.025 for Fable 5.1). A miss costs `2`, not `1`: Claude Code caches every
-request, so a miss re-writes the prefix at the 1-hour rate — its transcripts
-show almost no uncached input. The `2` is the cache write: Claude Code's main session uses the 1-hour
-TTL, billed at 2× input (its subagents use the 5-minute one, 1.25×). At `R=0`
-only that write remains. The `μ·R` term is where the saving lives.
+5.5, 0.025 for Fable 5.1). Both `2`s are the
+1-hour cache write, which Claude Code's main session uses and which is billed
+at 2× input (its subagents use the 5-minute TTL, 1.25×). The leading `2` is the
+write when the file first enters context. The `2` in `μ` is the price of a
+miss: Claude Code caches every request, so a miss re-writes the prefix rather
+than paying plain input — its transcripts show almost no uncached input. At
+`R=0` only the first write remains. The `μ·R` term is where the saving lives.
 
 That formula is the argument, not the measurement. Whether you would have read
 the file at all is not observable, so no log of what the hooks did can say what
@@ -186,14 +189,18 @@ The mechanism is not the problem; the size of the saving is.
 
 **Spotify's version is leakier, not better.** Going by the table in
 [What it does](#what-it-does), upstream misses `cd`, later segments, `2>`
-and pipes through `cat`, and blocks legitimate bounded `head`/`tail`. No
+and pipes through `cat`; it blocks `head -100` on a large file, and lets
+`head -n N` through whatever `N` is. No
 `PreToolUse` hook can stop a model that wants a file; the leaks are inherent
 to the approach, not to either implementation. Upstream's economics may differ:
-its worker is Gemini Flash behind Spotify's own platform, so the price gap is
-probably far wider than Opus or Sonnet to Haiku, and it may not pay a Claude Code
-subagent's ~14,600-token fixed cost. It may also exist for platform reasons
-(usage accounting, data routing) rather than savings. No measurement of it has
-been published that we know of. None of that carries over here.
+its worker is an AiKA mode on Spotify's own platform, whose model its README
+does not name, so the price gap may be far wider than Opus or Sonnet to Haiku,
+and it may not pay a Claude Code subagent's ~14,600-token fixed cost. It may
+also exist for platform reasons (usage accounting, data routing) rather than
+savings. Upstream does publish measurements: 82–94% of tokens saved on large
+file reads in a 162K-line Java monorepo. Those are tokens kept out of the
+parent, not dollars across a session, so they answer a different question
+from the A/B above. None of that carries over here.
 
 **What that suggests.** The Bash parser (~400 lines) and much of the test
 suite chase a leak that cannot be closed, to protect a saving that cannot be
@@ -284,7 +291,8 @@ Also `/haiku-shunt:shunt-report` and `/haiku-shunt:shunt-doctor` inside a sessio
 
 ## Configuration
 
-Everything in `config/defaults.json`, overridable by environment variable:
+Defaults live in `config/defaults.json`, overridable by environment variable.
+`SHUNT_DISABLE`, `SHUNT_LOG_DIR` and `SHUNT_LOG_LOCK` are environment-only:
 
 | variable | default | meaning |
 |---|---|---|
@@ -293,6 +301,8 @@ Everything in `config/defaults.json`, overridable by environment variable:
 | `SHUNT_MAX_BYTES` | 200000 | byte ceiling: shunt regardless of line count |
 | `SHUNT_MODE` | `deny` | `warn` nudges via `additionalContext` instead of denying |
 | `SHUNT_MAX_DENIES_PER_PATH` | 2 | after this, the same path in the same session is let through |
+| `SHUNT_DENY_TTL` | 1800 | seconds after the last deny of a path before its count starts over |
+| `SHUNT_READ_TRUNCATION_LINES` | 2000 | Read's own cap when no `limit` is given |
 | `SHUNT_SHUNT_OTHER_AGENTS` | 1 | also shunt non-worker subagents (Explore, Plan…) |
 | `SHUNT_DISABLE` | — | `1` turns everything off |
 | `SHUNT_LOG_DIR` | plugin data dir | where `events-*.jsonl` goes |
@@ -318,7 +328,8 @@ independent guards, because the first one is not guaranteed:
 2. **Non-worker subagents** are still shunted by default (they benefit too);
    `SHUNT_SHUNT_OTHER_AGENTS=0` exempts them.
 3. **The deny cap.** After `SHUNT_MAX_DENIES_PER_PATH` refusals of the same path
-   in the same session, it is let through. This makes a loop structurally
+   in the same session, it is let through. The count starts over once
+   `SHUNT_DENY_TTL` (30 min) has passed since the last deny of that path. This makes a loop structurally
    impossible whatever happens to `agent_type` in a future release, and it is
    why the deny message can honestly promise the model a way out.
 
