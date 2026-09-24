@@ -142,6 +142,72 @@ Cheaper cache reads (Opus 5.5 at 0.05× input, Fable 5.1 at 0.025×) raise the
 break-even: re-sending a cached file costs those parents less, so keeping it
 out saves less.
 
+## Does it pay off? What has been measured
+
+Short answer: not measurably, so far. These are the findings as of 2026-09-24
+(Claude Code 2.1.281, Opus 5.5 parent). Read them before you adopt the plugin.
+
+**The ceiling is a few cents per avoided read.** Take a 747-line file (~4,500
+tokens) read in full on turn 1 of an 18-turn Opus 5.5 session:
+
+```
+cache write   4,500 × $8.00/M (2× input)               ≈ $0.036
+re-sends      4,500 × $0.20/M (0.05× input) × 17 turns ≈ $0.015
+                                                  total ≈ $0.05
+```
+
+That is the most the shunt can save on that read, out of a ~$0.40 session.
+From it, take the worker's fixed cost (~$0.02 of Haiku) and the windows the
+parent still has to read before editing. What is left is a few cents, while
+two identical sessions differ by 20–40%. The cheaper cache reads get (0.05×
+on Opus 5.5, 0.025× on Fable 5.1), the smaller this gets. It grows only with
+very large files (logs, generated JSON, 10,000+ lines) and very long sessions.
+
+**A/B on a real task: no effect beyond noise.** `bench/tasks/bulk-discount.sh`
+is a feature across a 2,300-line package, with its own tests and a hidden
+check against the original rules. 3 reps per arm, all 6 runs passed:
+
+| arm | median cost | range | turns | denies | delegations |
+|---|---|---|---|---|---|
+| off | $0.449 | $0.317–0.488 | 18 | 0 | 0 |
+| on | $0.370 | $0.357–0.402 | 18 | 1 | **0** |
+
+The −18% is noise: the control arm alone spans a wider range. Nothing was
+delegated. After a deny, the model took options 2 and 3 of the deny message
+(`grep`, then `sed -n` and windowed Reads), which a model editing code needs
+anyway. And the most common first move in *both* arms was `cat inv/*.py`,
+which the Bash hook lets through (see [Known limits](#known-limits)), so the
+whole package reached context regardless.
+
+**The wiring works.** In the smoke run the Read was denied, `bulk-reader`
+was delegated to and ran on `claude-haiku-4-5-20251001`, and the hook saw it as
+`haiku-shunt:bulk-reader` and exempted its reads. The answer was correct.
+The mechanism is not the problem; the size of the saving is.
+
+**Spotify's version is leakier, not better.** Going by the table in
+[What it does](#what-it-does), upstream misses `cd`, later segments, `2>`
+and pipes through `cat`, and blocks legitimate bounded `head`/`tail`. No
+`PreToolUse` hook can stop a model that wants a file; the leaks are inherent
+to the approach, not to either implementation. Upstream's economics may differ:
+its worker is Gemini Flash behind Spotify's own platform, so the price gap is
+probably far wider than Opus or Sonnet to Haiku, and it may not pay a Claude Code
+subagent's ~14,600-token fixed cost. It may also exist for platform reasons
+(usage accounting, data routing) rather than savings. No measurement of it has
+been published that we know of. None of that carries over here.
+
+**What that suggests.** The Bash parser (~400 lines) and much of the test
+suite chase a leak that cannot be closed, to protect a saving that cannot be
+measured. The alternatives, cheapest first:
+
+1. No plugin. Add a `CLAUDE.md` line: for large files, use Grep, windowed
+   Reads or a subagent. Recent models mostly do this already.
+2. A minimal plugin: the Read hook with a high threshold (e.g. over 2,000
+   lines or 50 KB), the deny cap and `bulk-reader`. No Bash hook, no parser,
+   no benchmark. A safety net for the extreme files where the saving is
+   real.
+3. This repository as it stands, if you work with such files every day and
+   will run enough A/B reps to see the effect.
+
 ## The other direction: `code-writer`
 
 `bulk-reader` keeps tokens out of the *input* side. `code-writer` keeps them off
@@ -202,9 +268,11 @@ not a saving.
 **The task must be long and multi-turn, and must read the big files early.**
 The entire thesis is that context is re-sent on every later turn, so a one-shot
 "read this and summarise it" measures the cache write and nothing else.
-`bench/tasks/smoke.sh` is deliberately that shape, and it reliably shows the
-shunt losing — it is there to prove the chain fires, not to measure anything.
-See `bench/tasks/TEMPLATE.sh`.
+`bench/tasks/smoke.sh` is deliberately that shape. It is there to prove the
+chain fires, not to measure anything: earlier runs showed the shunt losing,
+and one run on Opus 5.5 came out cheaper, which means nothing either.
+`bench/tasks/bulk-discount.sh` is a real task built the right way. Copy
+`bench/tasks/TEMPLATE.sh` to write your own.
 
 **Tuning the threshold** is coarse by necessity. Two agentic sessions on the
 same task easily differ by 20–40% in cost, so 350 vs 450 lines is not
@@ -276,6 +344,10 @@ visible.
   on a real task says how often it happens and whether the denies pay for
   themselves.
 - `bash -c "cat big.txt"` is not inspected.
+- Globs are not expanded: `cat inv/*.py` is allowed as `unresolvable_arg`.
+  This is what models most often run first on an unfamiliar package, so it is
+  the leak that matters most in practice (see
+  [Does it pay off?](#does-it-pay-off-what-has-been-measured)).
 - Token estimates in the log are `chars/4`, ±15% on source code. They feed
   nothing but the size buckets.
 - The break-even is a formula with assumed `R` and `h`, not a measurement.
