@@ -4,22 +4,37 @@
 Only reached when the bash fast-path has already seen a reader command name,
 so the interpreter start-up is not on the hot path.
 
+Every segment of the command is examined, not just the first reader: in
+`head -5 small; cat big` it is the second one that matters. A reader whose
+stdout is redirected, or piped into a filter (grep, wc, ...), is skipped; one
+piped only through copies (`| cat`, `| tee f`, `| head -N`) still reaches the
+model and is checked, with any `head`/`tail` bound applied.
+
 Emits one JSON object on stdout:
   {"verdict": "check"|"allow", "reason": <reason_code>,
-   "reader": <cmd|null>, "files": [abs...], "bound_lines": <int|null>}
+   "files": [{"path": abs, "reader": cmd,
+              "bound_lines": <int|null>, "from_line": <int|null>}, ...]}
 
 "check" means: probe these files and apply the thresholds.
-"allow" means: stop, this command never puts the file in front of the model.
+"allow" means: stop, nothing in this command puts a file in front of the
+model; "reason" says why the first reader found was not a candidate.
 """
 import json, os, shlex, sys
 
 READERS = {"cat", "less", "more", "bat"}
 BOUNDED = {"head", "tail"}
+# Pipe stages that copy stdin to stdout unchanged (tee's operands are outputs).
+PASSTHROUGH = READERS | {"tee"}
 # Stripped before looking for the real command.
 PREFIXES = {"sudo", "env", "command", "builtin", "exec", "nice", "ionice",
             "timeout", "stdbuf", "nohup", "time"}
 PREFIX_TAKES_ARG = {"nice": {"-n"}, "ionice": {"-c", "-n"}, "timeout": {"-k", "-s"},
                     "stdbuf": {"-i", "-o", "-e"}}
+
+
+# Redirection targets that still land in the Bash tool's output, which carries
+# stderr as well as stdout: `cat big >&2` is as much a dump as `cat big`.
+TO_MODEL = {"&1", "&2", "/dev/stdout", "/dev/stderr", "/dev/fd/1", "/dev/fd/2"}
 
 
 class Seg:
@@ -40,6 +55,7 @@ def scan(cmd):
     segs, cur = [], Seg()
     i, n = 0, len(cmd)
     sq = dq = False
+    pending = []    # heredoc delimiters whose bodies start at the next newline
 
     def flush():
         nonlocal cur
@@ -62,6 +78,20 @@ def scan(cmd):
                 break
             j += 1
         return cmd[start:j], j
+
+    def skip_bodies(j):
+        """j is just past a newline: skip each pending heredoc body, up to and
+        including its delimiter line. An unterminated body runs to the end."""
+        for delim, strip_tabs in pending:
+            while j < n:
+                end = cmd.find("\n", j)
+                end = n if end < 0 else end
+                line = cmd[j:end]
+                j = end + 1
+                if (line.lstrip("\t") if strip_tabs else line) == delim:
+                    break
+        pending.clear()
+        return min(j, n)
 
     while i < n:
         c = cmd[i]
@@ -110,35 +140,48 @@ def scan(cmd):
                 i += 1
             continue
         if cmd.startswith("&>", i):
-            cur.redirected = True
-            _, i = eat_target(i + 2)
+            j = i + 2 + cmd.startswith("&>>", i)
+            tgt, i = eat_target(j)
+            if tgt not in TO_MODEL:
+                cur.redirected = True
+            continue
+        if cmd.startswith("<<<", i):
+            # Herestring: stdin is a literal word, not a file.
+            cur.heredoc = True
+            _, i = eat_target(i + 3)
             continue
         if cmd.startswith("<<", i):
             # Heredoc: the body is data, not a file read, and must never be
-            # rescanned for commands it happens to mention.
+            # rescanned for commands it happens to mention. Parsing resumes
+            # after its delimiter line: `cat <<EOF ... EOF` then `cat big`.
             cur.heredoc = True
-            return segs + [cur]
+            j = i + 2
+            strip_tabs = j < n and cmd[j] == "-"
+            word, i = eat_target(j + strip_tabs)
+            pending.append((word.replace("'", "").replace('"', "").replace("\\", ""),
+                            strip_tabs))
+            continue
         if c == "<":
             # `cat < big` still dumps the file to stdout.
             tgt, i = eat_target(i + 1)
             cur.stdin_file = tgt
             continue
         if c == ">":
+            # An fd number only counts as one when it is a whole word:
+            # `2>x` redirects stderr, `file2>x` redirects stdout.
+            prev = cmd[i - 1] if i and cmd[i - 1].isdigit() and \
+                (i < 2 or cmd[i - 2] in " \t;&|(") else ""
             j = i
             while j < n and cmd[j] == ">":
                 j += 1
-            prev = cmd[i - 1] if i else ""
+            dup = j < n and cmd[j] == "&"          # >&2, 1>&2
+            tgt, i = eat_target(j + dup)
+            tgt = ("&" + tgt) if dup else tgt
             # 2>/dev/null redirects only stderr; stdout still reaches the model.
-            fd_is_stderr = prev.isdigit() and prev != "1"
-            if fd_is_stderr:
-                # drop the trailing fd digit we already appended
-                if cur.text.endswith(prev):
-                    cur.text = cur.text[:-1]
-            else:
+            if prev:
+                cur.text = cur.text[:-1]          # the fd digit is not a word
+            if prev in ("", "1") and tgt not in TO_MODEL:
                 cur.redirected = True
-                if cur.text.endswith("1") or cur.text.endswith("&"):
-                    cur.text = cur.text[:-1]
-            _, i = eat_target(j)
             continue
         if c == "|":
             if cmd.startswith("||", i):
@@ -156,6 +199,8 @@ def scan(cmd):
         if c in ";&\n":
             flush()
             i += 1
+            if c == "\n" and pending:
+                i = skip_bodies(i)
             continue
         cur.text += c
         i += 1
@@ -269,33 +314,57 @@ def safe_int(v):
         return None
 
 
-def out(verdict, reason, reader=None, files=(), bound=None, from_line=None):
-    print(json.dumps({"verdict": verdict, "reason": reason, "reader": reader,
-                      "files": list(files), "bound_lines": bound,
-                      "from_line": from_line}))
+def out(verdict, reason, files=()):
+    print(json.dumps({"verdict": verdict, "reason": reason, "files": list(files)}))
     sys.exit(0)
+
+
+def words_of(seg):
+    """The segment's command words, prefixes stripped. None if unparseable."""
+    try:
+        return strip_prefixes(shlex.split(seg.text.strip(), posix=True))
+    except ValueError:
+        return None                              # unbalanced quotes
+
+
+def through_pipe(stages, i, bound):
+    """Follow a reader's stdout down its pipeline. Returns the bound that
+    survives to the end if the content still reaches the model, else the
+    reason it does not ("piped" into a filter, or "redirected")."""
+    while stages[i][0].piped_out:
+        i += 1
+        if i >= len(stages):
+            return "piped"
+        seg, words = stages[i]
+        if not words or seg.subst or seg.heredoc:
+            return "piped"
+        base = os.path.basename(words[0])
+        if base not in PASSTHROUGH and base not in BOUNDED:
+            return "piped"                       # grep, wc, sort...: see Non-goals
+        if base != "tee":
+            b, from_line, operands = parse_bounds(base, words[1:])
+            if b == "follow" or (operands and "-" not in operands):
+                return "piped"                   # reads its own files, not stdin
+            if base in BOUNDED and from_line is None and b is not None:
+                bound = b if bound is None else min(bound, b)
+        if seg.redirected:
+            return "redirected"
+    return bound
 
 
 def main():
     cmd = sys.stdin.read()
     cwd = sys.argv[1] if len(sys.argv) > 1 else os.getcwd()
     try:
-        segs = scan(cmd)
+        stages = [(s, words_of(s)) for s in scan(cmd)]
     except Exception:
         out("allow", "internal_error")
 
-    for seg in segs:
-        text = seg.text.strip()
-        if not text:
+    files, skipped = [], None
+    for i, (seg, words) in enumerate(stages):
+        if words is None:
+            skipped = skipped or "unresolvable_arg"
             continue
-        try:
-            words = shlex.split(text, posix=True)
-        except ValueError:
-            out("allow", "unresolvable_arg")     # unbalanced quotes
-        if not words:
-            continue
-
-        words = strip_prefixes(words)
         if not words:
             continue
         base = os.path.basename(words[0])
@@ -308,33 +377,40 @@ def main():
         if base not in READERS and base not in BOUNDED:
             continue
 
+        # Why this reader never puts a file on the model's stdout, if it doesn't.
+        reason, bound, from_line, operands = None, None, None, []
         if seg.heredoc:
-            out("allow", "heredoc", base)
-        if seg.piped_out:
-            out("allow", "piped", base)
-        if seg.redirected:
-            out("allow", "redirected", base)
-        if seg.subst:
-            out("allow", "unresolvable_arg", base)
+            reason = "heredoc"
+        elif seg.redirected:
+            reason = "redirected"
+        elif seg.subst:
+            reason = "unresolvable_arg"
+        else:
+            bound, from_line, operands = parse_bounds(base, words[1:])
+            if seg.stdin_file:
+                operands = operands + [seg.stdin_file]
+            if bound == "follow":
+                reason = "not_a_reader_command"  # never block a follow
+            elif not operands:
+                reason = "no_file_operand"
+            elif any(c in o for o in operands for c in "$*?["):
+                reason = "unresolvable_arg"      # do not glob in a hook
+            elif seg.piped_out:
+                bound = through_pipe(stages, i, bound)
+                if isinstance(bound, str):
+                    reason = bound
+        if reason:
+            skipped = skipped or reason
+            continue
 
-        bound, from_line, operands = parse_bounds(base, words[1:])
-        if bound == "follow":
-            out("allow", "not_a_reader_command", base)   # never block a follow
-
-        if seg.stdin_file:
-            operands = operands + [seg.stdin_file]
-        if not operands:
-            out("allow", "no_file_operand", base)
-
-        files = []
         for o in operands:
-            if "$" in o or "*" in o or "?" in o or "[" in o:
-                out("allow", "unresolvable_arg", base)   # do not glob in a hook
             p = os.path.expanduser(o)
-            files.append(p if os.path.isabs(p) else os.path.normpath(os.path.join(cwd, p)))
-        out("check", "candidate", base, files, bound, from_line)
+            files.append({"path": p if os.path.isabs(p) else os.path.normpath(os.path.join(cwd, p)),
+                          "reader": base, "bound_lines": bound, "from_line": from_line})
 
-    out("allow", "not_a_reader_command")
+    if files:
+        out("check", "candidate", files)
+    out("allow", skipped or "not_a_reader_command")
 
 
 if __name__ == "__main__":

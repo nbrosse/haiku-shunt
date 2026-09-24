@@ -9,8 +9,8 @@ shunt_deny_reason() { # $1 what, $2 detail, $3 est tokens
 $1 was blocked to keep it out of this session's context ($2, ~$3 tokens — context is re-sent on every following turn).
 
 Pick one:
-1. Overview or a question about the content: Task(subagent_type="bulk-reader", prompt="<the specific question> about <paths>"). It reads the files in its own context on Haiku and returns a compact summary with exact line anchors.
-2. You already know where to look: re-issue Read with offset and limit. Windowed reads are always allowed, and you need one anyway before editing.
+1. A question about the whole file, or an overview: Agent(subagent_type="haiku-shunt:bulk-reader", prompt="<the specific question> about <paths>"). It reads the files in its own context on Haiku and returns a compact summary with exact line anchors. Do not page through the whole file in windows instead: that puts all of it in this context anyway.
+2. You already know where to look: re-issue Read with offset and a limit of at most ${MIN_LINES} lines. Windows that size are always allowed, and you need one anyway before editing. A window that returns more lines is blocked like a full read — a larger limit, or an offset without a limit, which reads up to ${TRUNC_LINES} lines.
 3. Looking for a symbol or string: use Grep first.
 
 Line numbers in a summary are for navigation. Before editing, confirm the range with a windowed Read.

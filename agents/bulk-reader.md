@@ -2,7 +2,7 @@
 name: bulk-reader
 description: Reads large or numerous files and answers a specific question about them, returning only a compact structured answer. Use INSTEAD of reading a big file directly whenever you need to understand code rather than edit it - the files stay in this agent's context, not yours. Give it the exact question you need answered and the paths.
 tools: Read, Grep, Glob
-model: claude-haiku-4-5-20251001
+model: claude-haiku-4-5
 maxTurns: 6
 ---
 

@@ -21,18 +21,6 @@
           }
         ]
       }
-    ],
-    "SubagentStop": [
-      {
-        "matcher": "(.*:)?(bulk-reader|code-writer)",
-        "hooks": [
-          {
-            "type": "command",
-            "timeout": 15,
-            "command": "HAIKU_SHUNT_PLUGIN_DATA=${CLAUDE_PLUGIN_DATA} ${CLAUDE_PLUGIN_ROOT}/hooks/subagent-stop.sh"
-          }
-        ]
-      }
     ]
   }
 }

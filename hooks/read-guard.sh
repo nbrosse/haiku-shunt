@@ -37,12 +37,9 @@ shunt_common_guards || true
 
 # A windowed read is the model saying it already knows what it wants -- and it
 # is exactly what we tell it to do after a deny, so it must always be allowed.
-# A `limit` larger than the threshold is not windowed, it is a full read.
-if [ -n "$LIMIT" ]; then
-  [ "$(shunt_int "$LIMIT" 0)" -le "$MIN_LINES" ] && shunt_allow "targeted_read"
-elif [ -n "$OFFSET" ]; then
-  shunt_allow "targeted_read"
-fi
+# Fast path: a `limit` within the threshold cannot return more, whatever the
+# file, so it needs no probe.
+[ -n "$LIMIT" ] && [ "$(shunt_int "$LIMIT" 0)" -le "$MIN_LINES" ] && shunt_allow "targeted_read"
 
 case "$FILE_PATH" in
   /*) ABS="$FILE_PATH" ;;
@@ -55,6 +52,28 @@ esac
 case "$ABS" in *"/.haiku-shunt/"*|*"/haiku-shunt/metrics/"*) shunt_allow "path_exempt" ;; esac
 
 shunt_probe "$ABS" || shunt_allow "$F_REASON"
+
+# Any other window is judged by what it RETURNS, like `tail -n +K` in the Bash
+# hook: an offset alone reads up to TRUNC_LINES lines, so Read(offset=1) is a
+# full read by another name, while a large limit near the end of the file may
+# return only a few lines. offset is 1-based.
+if [ -n "$OFFSET" ] || [ -n "$LIMIT" ]; then
+  off=$(shunt_int "$OFFSET" 1); [ "$off" -lt 1 ] && off=1
+  eff=$(shunt_int "$LIMIT" "$TRUNC_LINES")
+  rest=$(( F_LINES - off + 1 )); [ "$rest" -lt 0 ] && rest=0
+  [ "$rest" -lt "$eff" ] && eff="$rest"
+  win_bytes=0; [ "$F_LINES" -gt 0 ] && win_bytes=$(( F_BYTES * eff / F_LINES ))
+  PATHS_JSON=$(jq -cn --arg p "$FILE_PATH" --arg a "$ABS" --argjson l "$F_LINES" \
+    --argjson e "$eff" --argjson b "$F_BYTES" --argjson o "$off" \
+    '[{path:$p, abs:$a, exists:true, lines:$l, effective_lines:$e, bytes:$b, offset:$o}]')
+  [ "$eff" -le "$MIN_LINES" ] && shunt_allow "targeted_read"
+  # Same byte floor as a full read: a small file is never worth a subagent.
+  [ "$F_BYTES" -gt "$MIN_BYTES" ] || shunt_allow "under_byte_floor"
+  EST_TOKENS=$(shunt_est_tokens "$win_bytes" "$eff")
+  EST_TOKENS_UNCAPPED="$EST_TOKENS"
+  shunt_deny "window_over_threshold" "Read of $FILE_PATH" \
+    "a window of $eff lines from line $off, threshold $MIN_LINES" "$EST_TOKENS" "$ABS"
+fi
 
 EST_TOKENS_UNCAPPED=$(shunt_est_tokens "$F_BYTES" "$F_LINES")
 EST_TOKENS=$(shunt_capped_tokens "$ABS" "$F_BYTES" "$F_LINES")

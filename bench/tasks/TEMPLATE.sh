@@ -5,7 +5,7 @@
 # THE ONE RULE: the task must be LONG and MULTI-TURN, and it must read the big
 # files EARLY. The shunt's whole thesis is that context is re-sent on every
 # later turn, so a one-shot "read this file and summarise it" measures the
-# 1.25x cache write and nothing else -- it will tell you the shunt does
+# cache write and nothing else -- it will tell you the shunt does
 # nothing, and the benchmark will be what is wrong. Aim for 20+ turns.
 
 TASK_NAME="rename-and-test"

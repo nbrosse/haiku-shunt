@@ -37,12 +37,14 @@ CFG_MAX_BYTES=\(.thresholds.max_bytes)
 CFG_TRUNC=\(.thresholds.read_truncation_lines)
 CFG_MAX_DENIES=\(.thresholds.max_denies_per_path)
 CFG_DENY_TTL=\(.thresholds.deny_ttl_seconds)
+CFG_RETENTION=\(.logging.retention_days // 30)
 CFG_MODE=\(.policy.mode)
+CFG_OTHER=\(if .policy.shunt_other_agents == false then 0 else 1 end)
 CFG_WORKERS=\(.policy.worker_agents|join(" "))
 CFG_READERS=\(.policy.reader_commands|join(" "))
 CFG_EXT=\(.policy.exempt_extensions|join(" "))"' "$SHUNT_ROOT/config/defaults.json" 2>/dev/null) || cfg=""
   CFG_MIN_LINES=350; CFG_MIN_BYTES=8000; CFG_MAX_BYTES=200000; CFG_TRUNC=2000
-  CFG_MAX_DENIES=2; CFG_DENY_TTL=1800; CFG_MODE=deny
+  CFG_MAX_DENIES=2; CFG_DENY_TTL=1800; CFG_RETENTION=30; CFG_MODE=deny; CFG_OTHER=1
   CFG_WORKERS="bulk-reader code-writer"; CFG_READERS="cat less more bat head tail"; CFG_EXT=""
   [ -n "$cfg" ] && eval "$cfg"
 
@@ -52,8 +54,9 @@ CFG_EXT=\(.policy.exempt_extensions|join(" "))"' "$SHUNT_ROOT/config/defaults.js
   TRUNC_LINES=$(shunt_int "${SHUNT_READ_TRUNCATION_LINES:-}" "$CFG_TRUNC")
   MAX_DENIES=$(shunt_int "${SHUNT_MAX_DENIES_PER_PATH:-}" "$CFG_MAX_DENIES")
   DENY_TTL=$(shunt_int "${SHUNT_DENY_TTL:-}" "$CFG_DENY_TTL")
+  RETENTION_DAYS=$(shunt_int "${SHUNT_LOG_RETENTION_DAYS:-}" "$CFG_RETENTION")
   MODE="${SHUNT_MODE:-$CFG_MODE}"
-  SHUNT_OTHER="${SHUNT_SHUNT_OTHER_AGENTS:-1}"
+  SHUNT_OTHER="${SHUNT_SHUNT_OTHER_AGENTS:-$CFG_OTHER}"
   WORKER_AGENTS="$CFG_WORKERS"
   READER_CMDS="$CFG_READERS"
   EXEMPT_EXT="$CFG_EXT"
@@ -96,12 +99,23 @@ shunt_append() { # $1 compact json line
   fi
   [ "${#line}" -gt 4000 ] && line='{"v":1,"event":"emit_error","reason":"record_too_large"}'
   f="$dir/events-$(date -u +%Y-%m-%d).jsonl"
+  # First record of the day: prune old logs and deny state, so the log (which
+  # holds commands and paths) does not grow forever. 0 keeps everything.
+  [ -e "$f" ] || shunt_prune "$dir"
   if [ "${SHUNT_LOG_LOCK:-0}" = "1" ]; then
     ( flock -x 9; printf '%s\n' "$line" >&9 ) 9>>"$f" 2>/dev/null || true
   else
     printf '%s\n' "$line" >> "$f" 2>/dev/null || true
   fi
   chmod 600 "$f" 2>/dev/null || true
+}
+
+shunt_prune() { # $1 log dir
+  local days="${RETENTION_DAYS:-30}"
+  [ "$days" -gt 0 ] 2>/dev/null || return 0
+  find "$1" -maxdepth 1 -name 'events-*.jsonl' -mtime +"$((days - 1))" -delete 2>/dev/null
+  find "$1/state" -maxdepth 1 -type f -mtime +"$((days - 1))" -delete 2>/dev/null
+  return 0
 }
 
 shunt_log() { # $1 reason_code, $2 decision

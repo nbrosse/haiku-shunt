@@ -16,7 +16,7 @@ a Haiku subagent. A Portal-free reimplementation of
      allow                   permissionDecision: "deny"
                                     │  the reason tells the model what to do instead
                                     ▼
-                     Task(subagent_type="bulk-reader")
+           Agent(subagent_type="haiku-shunt:bulk-reader")
                            model: claude-haiku-4-5
                            tools: Read, Grep, Glob
                                     │
@@ -27,8 +27,9 @@ a Haiku subagent. A Portal-free reimplementation of
                             Sonnet / Opus continues
 ```
 
-Spotify's version routes the worker through `portal-cli` → Spotify Portal/AiKA
-→ Gemini Flash, so cloning their repo does not give you a working backend. Here
+Spotify's version routes the worker through `portal-cli` to an AiKA mode on a
+Spotify Portal instance, so cloning their repo does not give you a working
+backend. Here
 the worker is a native Claude Code subagent. There is no service to sign up
 for, no API key, and no transport layer: context isolation is already what a
 subagent *is*.
@@ -54,8 +55,15 @@ Then read a file over 350 lines and watch what happens.
 **Read hook.** Denies a full-file `Read` when the file is over `SHUNT_MIN_LINES`
 (350) *and* over `SHUNT_MIN_BYTES` (8000), or over `SHUNT_MAX_BYTES` (200 KB)
 regardless of line count — a minified 2 MB bundle is one line and would sail
-past a line-only threshold. A `Read` with `offset`/`limit` is always allowed: it
-is what we tell the model to do after a deny, and it is what editing requires.
+past a line-only threshold.
+
+A windowed `Read` is judged by the lines it will actually return:
+`min(limit, lines left after offset)`, where a missing `limit` means Read's own
+2000-line cap. Within `SHUNT_MIN_LINES` it is always allowed: it is what we tell
+the model to do after a deny, and it is what editing requires. Beyond that it
+is a full read by another name — `Read(offset=1)`, or `limit=1000` mid-file —
+and is denied like one. `offset=4900, limit=500` on a 5000-line file returns
+101 lines and passes.
 
 **Bash hook.** Catches `cat`/`less`/`more`/`bat` dumps that bypass the Read
 tool. It treats a *bounded* read as equivalent to `Read(limit=N)`, which is
@@ -65,13 +73,24 @@ where it differs from upstream:
 |---|---|---|
 | `head -100 big.txt` | allow — 100 lines is a windowed read | block |
 | `head -n 5 big.txt` | allow — bounded | allow, but by accident: their flag-stripper takes `5` as the filename |
-| `head -n 5000 big.txt` | deny — bounded but still the whole file | block |
-| `tail -n +4900 huge.txt` | allow — only 101 of 5000 lines | block |
+| `head -n 5000 big.txt` | deny — bounded but still the whole file | allow — same accident: `5000` is taken as the filename |
+| `tail -n +4900 huge.txt` | allow — only 101 of 5000 lines | allow, by the same accident (`+4900`) |
 | `cat f 2>/dev/null` | deny — only stderr is redirected; stdout still reaches the model | allow |
 | `cd sub && cat big.txt` | deny — `cd` is tracked | allow |
+| `head -5 small.txt; cat big.txt` | deny — every segment is checked | allow |
+| `cat big.txt \| cat` | deny — a copy is not a filter | allow |
+| `cat big.txt \| grep x` | allow — filtered | allow |
+| `cat big.txt >&2` | deny — the Bash tool returns stderr too | allow |
+| `cat <<EOF … EOF` then `cat big.txt` | deny — parsing resumes after the heredoc | allow |
 
-Piped, redirected and heredoc commands are allowed: their output does not reach
-the model. So are `grep`, `sed`, `awk`, `git show` and `python -c open(...)` —
+Every segment of a command is checked. A read whose stdout is redirected, or
+piped into a filter (`grep`, `wc`, `sort`, …), is allowed: the file does not
+reach the model. A pipe through a copy (`| cat`, `| tee f`, `| less`) does, so
+it is checked like the bare read; `| head -N` caps it at N lines. So is a
+redirect that lands back in the tool output (`>&2`, `> /dev/stdout`,
+`&> /dev/stderr`): Claude Code returns stderr to the model as well. Heredoc
+and herestring bodies are data and are never scanned; parsing resumes after
+the delimiter line. So are `grep`, `sed`, `awk`, `git show` and `python -c open(...)` —
 see [Non-goals](#non-goals).
 
 **Fail-open is the invariant.** Malformed input, an unparseable command, a
@@ -89,59 +108,130 @@ re-sent ~37 more times, discounted to ~10% of the input rate by prompt caching.
 Keeping it out of the parent entirely is what compounds.
 
 ```
-C_avoided = T · P_in · (1.25 + μ·R) / 1e6      μ = 0.10h + 1.0(1−h)
+C_avoided = T · P_in · (2 + μ·R) / 1e6      μ = k·h + 2(1−h)
 ```
 
 `T` = tokens in the file, `R` = turns remaining after the read, `h` = cache-hit
-rate. At `R=0` this collapses to the naive "file tokens × parent rate". The
-`μ·R` term is where the saving lives.
+rate, `k` = the parent's cache-read rate (0.10 for most models, 0.05 for Opus
+5.5, 0.025 for Fable 5.1). Both `2`s are the
+1-hour cache write, which Claude Code's main session uses and which is billed
+at 2× input (its subagents use the 5-minute TTL, 1.25×). The leading `2` is the
+write when the file first enters context. The `2` in `μ` is the price of a
+miss: Claude Code caches every request, so a miss re-writes the prefix rather
+than paying plain input — its transcripts show almost no uncached input. At
+`R=0` only the first write remains. The `μ·R` term is where the saving lives.
 
-Three things this repo does that a headline percentage cannot:
+That formula is the argument, not the measurement. Whether you would have read
+the file at all is not observable, so no log of what the hooks did can say what
+they saved. **The only number this repo trusts is an A/B**: the same task with
+and without the plugin, priced by Claude Code itself (see
+[Benchmarking](#benchmarking)).
 
-**It measures the worker instead of assuming it.** Every subagent writes its own
-transcript, and `agent-<id>.meta.json` links it back to the parent's `Task`
-call. `haiku-shunt analyze` reads them and reports what the worker actually
-cost. Aggregating that usage has a trap: Claude Code writes one row per content
-block and repeats the message's usage on each, so summing rows overcounts ~3×,
-while taking the first row per message undercounts output ~60× (`output_tokens`
-grows across blocks; the input side does not). See `hooks/lib/usage.jq`.
-
-Three of the model's inputs start as assumptions and get replaced by
-measurements as soon as there is something to measure:
-
-| input | assumed | measured from |
-|---|---|---|
-| worker cache-write floor | 14,600 tok | median of your own delegations |
-| summary size | 300 tok | the worker's last message (`final_output_tokens`) |
-| `R`, turns remaining | 12 | parent turns after the delegation, via `analyze --write` |
-
-The report header says which one it used — `R=7 (measured from 2 delegation(s))`
-or `R=12 (assumed)` — so a number you are about to trust never hides its
-provenance.
-
-**It accounts for `Read`'s truncation.** `Read` stops at ~2000 lines, so a
-4014-line file never costs the parent 4014 lines. Whole-file numbers overstate
-the saving. The report shows the capped figure as the headline and the uncapped
-one beside it, so you can see the difference.
-
-**It prints a break-even.** A subagent has a fixed cost before it reads
-anything — a system-prompt cache write, measured per installation rather than
-assumed. Below that size, delegating *loses* money:
+**Break-even.** A subagent has a fixed cost before it reads anything — a
+system-prompt cache write, ~14,600 tokens. Below some file size, delegating
+*loses* money. `haiku-shunt doctor` prints that size from the formula and the
+prices in `config/defaults.json`:
 
 ```
-haiku-shunt report --parent claude-opus-5
-...
-  break-even file size at these settings: 1,265 tokens (~97 lines)
-  3/14 denies were BELOW break-even - raise SHUNT_MIN_LINES
+break-even vs claude-sonnet-5       2,137 tokens  (~  164 lines)
+break-even vs claude-opus-5-5       1,121 tokens  (~   86 lines)
+break-even vs claude-opus-5           793 tokens  (~   61 lines)
+break-even vs claude-fable-5-1        457 tokens  (~   35 lines)
 ```
 
-(1,265 is the figure for the default 14,600-token floor at `R=12`; `doctor`
-prints the same number. Once your own delegations have been measured, the floor
-— and this threshold — move.)
+It is an order of magnitude, from assumed `R=12` and `h=0.9`, and it needs no
+data. The default 350 lines is above break-even for every parent listed.
+Cheaper cache reads (Opus 5.5 at 0.05× input, Fable 5.1 at 0.025×) raise the
+break-even: re-sending a cached file costs those parents less, so keeping it
+out saves less.
 
-The default 350 lines suits an Opus parent. On Sonnet, break-even is higher —
-run `haiku-shunt doctor`, which computes it from your own delegations and tells
-you what to set.
+## Does it pay off? What has been measured
+
+Short answer: not measurably, so far. These are the findings as of 2026-09-24
+(Claude Code 2.1.281, Opus 5.5 parent). Read them before you adopt the plugin.
+
+**The ceiling is a few cents per avoided read.** Take a 747-line file (~4,500
+tokens) read in full on turn 1 of an 18-turn Opus 5.5 session:
+
+```
+cache write   4,500 × $8.00/M (2× input)               ≈ $0.036
+re-sends      4,500 × $0.20/M (0.05× input) × 17 turns ≈ $0.015
+                                                  total ≈ $0.05
+```
+
+That is the most the shunt can save on that read, out of a ~$0.40 session.
+From it, take the worker's fixed cost (~$0.02 of Haiku) and the windows the
+parent still has to read before editing. What is left is a few cents, while
+two identical sessions differ by 20–40%. The cheaper cache reads get (0.05×
+on Opus 5.5, 0.025× on Fable 5.1), the smaller this gets. It grows only with
+very large files (logs, generated JSON, 10,000+ lines) and very long sessions.
+
+**A/B on a real task: suggestive at best, and not from delegation.**
+`bench/tasks/bulk-discount.sh` is a feature across a 2,300-line package, with
+its own tests and a hidden check against the original rules. Two campaigns of
+3 reps per arm, the second after the deny message was renamed to `Agent(...)`:
+
+| campaign | arm | median cost | range | median turns | passed | denies | delegations |
+|---|---|---|---|---|---|---|---|
+| 1 | off | $0.449 | $0.317–0.488 | 18 | 3/3 | 0 | 0 |
+| 1 | on | $0.370 | $0.357–0.402 | 18 | 3/3 | 1 | **0** |
+| 2 | off | $0.452 | $0.446–0.486 | 14 | 2/3 | 0 | 0 |
+| 2 | on | $0.415 | $0.410–0.435 | 17 | 3/3 | 2 | **0** |
+
+Pooled, the six `on` runs have a median of $0.406 against $0.451 for `off`
+(−10%). Five of the six `off` runs cost more than every `on` run; the sixth
+cost less than all of them. With six runs per arm that is not significant
+(exact two-sided Mann–Whitney p ≈ 0.065). It is worth a larger campaign, not a
+claim.
+
+Whatever the saving is, Haiku is not where it comes from: in twelve runs,
+nothing was delegated. After a deny, the model took options 2 and 3 of the
+deny message (`grep`, then `sed -n` and windowed Reads), which a model editing
+code needs anyway. If the plugin pays at all, it is the Read hook steering
+the parent towards targeted reads, not `bulk-reader`.
+
+And the leaks are wide open. The usual first move is to dump the package:
+`cat inv/*.py`, `for f in $(git ls-files); do cat "$f"; done`, or
+`git ls-files | xargs tail -n +1`. The Bash hook lets all three through (see
+[Known limits](#known-limits)). In campaign 2, every `on` run started with
+`xargs wc -l` to size the files first, and two of the three then stayed on
+targeted reads; every `off` run started with a full dump. Three runs cannot
+say whether the plugin's agent descriptions cause that.
+
+**The wiring works.** In the smoke run the Read was denied, `bulk-reader`
+was delegated to and ran on `claude-haiku-4-5-20251001`, and the hook saw it as
+`haiku-shunt:bulk-reader` and exempted its reads. The answer was correct.
+Re-run on 2026-09-24 after the deny message switched to
+`Agent(subagent_type="haiku-shunt:bulk-reader")`: the model called exactly
+that. The mechanism is not the problem; the size of the saving is.
+
+**Spotify's version is leakier, not better.** Going by the table in
+[What it does](#what-it-does), upstream misses `cd`, later segments, `2>`
+and pipes through `cat`; it blocks `head -100` on a large file, and lets
+`head -n N` through whatever `N` is. No
+`PreToolUse` hook can stop a model that wants a file; the leaks are inherent
+to the approach, not to either implementation. Upstream's economics may differ:
+its worker is an AiKA mode on Spotify's own platform, whose model its README
+does not name, so the price gap may be far wider than Opus or Sonnet to Haiku,
+and it may not pay a Claude Code subagent's ~14,600-token fixed cost. It may
+also exist for platform reasons (usage accounting, data routing) rather than
+savings. Upstream does publish measurements: 82–94% of tokens saved on large
+file reads in a 162K-line Java monorepo. Those are tokens kept out of the
+parent, not dollars across a session, so they answer a different question
+from the A/B above. None of that carries over here.
+
+**What that suggests.** The Bash parser (~400 lines) and much of the test
+suite chase a leak that cannot be closed, to protect a saving that cannot be
+measured. The alternatives, cheapest first:
+
+1. No plugin. Add a `CLAUDE.md` line: for large files, use Grep, windowed
+   Reads or a subagent. Recent models mostly do this already.
+2. A minimal plugin: the Read hook with a high threshold (e.g. over 2,000
+   lines or 50 KB), the deny cap and `bulk-reader`. No Bash hook, no parser,
+   no benchmark. A safety net for the extreme files where the saving is
+   real.
+3. This repository as it stands, if you work with such files every day and
+   will run enough A/B reps to see the effect.
 
 ## The other direction: `code-writer`
 
@@ -160,58 +250,67 @@ the cost lands *after* the tool call; writes cannot, because it lands before.
 
 So this half is a choice the model makes up front, from the agent description,
 not a rule the plugin enforces — and the README says so rather than implying a
-symmetry that does not exist. What the plugin does do is **measure it**:
-`SubagentStop` matches `code-writer` too, and the report gives it its own
-section, valuing the tokens the worker generated at the parent's output rate
-plus the context they never entered.
-
-That figure is labelled `proxy`, not `estimated` or `MEASURED`, because the
-worker's output stands in for output the parent never produced. There is no
-counterfactual to compare against — the same honesty problem as the read side,
-one step further from the evidence.
+symmetry that does not exist. Whether it pays off is, again, an A/B question.
 
 ## Commands
 
 ```bash
-haiku-shunt report [--parent MODEL] [--turns N] [--cache-hit 0..1] [--since DAYS]
-                   [--worker-floor N] [--format table|json]
-haiku-shunt analyze [TRANSCRIPT] [--all] [--write]   # measured, not modelled
-                                                     # --write also feeds R back
-haiku-shunt session-cost [TRANSCRIPT|SESSION_ID]     # parent + subagents, no model
-haiku-shunt doctor                                   # install + assumptions
+haiku-shunt report [--since DAYS] [--format table|json]   # what the hooks did
+haiku-shunt doctor                                        # install + break-even
 ```
 
-`session-cost` is the only number here with no cost model behind it: it prices
-a whole session from the transcripts\' own usage rows, parent plus every
-subagent it spawned. That makes it the metric for an A/B — run the same task
-with and without the shunt and compare two things that both really happened,
-instead of one that happened and one that was modelled.
+`report` only counts: how often each hook fired, why (including
+`deny_cap_reached`, a large file that got through anyway), and how big the
+denied files were — lines that would have reached the model, in buckets. The
+buckets say how many denies a different threshold would change, which is how
+you pick the values worth benchmarking.
 
 ## Benchmarking
 
 ```bash
 bash bench/ab.sh --task bench/tasks/smoke.sh --reps 1   # prove the wiring
 bash bench/ab.sh --task bench/tasks/mytask.sh --reps 5  # a real measurement
+bash bench/ab.sh --task bench/tasks/mytask.sh --reps 5 \
+  --arm min200:SHUNT_MIN_LINES=200 --arm min800:SHUNT_MIN_LINES=800
 ```
 
-Arms run interleaved (A,B,A,B…) because cache warmth and service load drift
-over a run; the control arm loads no plugin at all, so the comparison is not
-confounded by the agents still being available. Each run gets a fresh session
-id and its own log dir, and every row carries a pass/fail from the task\'s own
-`task_verify` — a cheaper arm that did not do the work is not a saving.
+Each run is a `claude -p --output-format json`, and the cost is what Claude
+Code reports: `total_cost_usd`, with `modelUsage` broken down per model —
+subagents included, or the shunt arm would look free. That figure prices cache
+writes at the TTL actually used (1-hour writes are 2× input, not 1.25×), which
+a hand-rolled price table gets wrong. The CSV also records turns, wall time,
+Haiku spend (workers plus ~$0.001 of Claude Code's own background Haiku call,
+present in the control arm too), denies and delegations per run.
+
+The control arm `off` loads no plugin at all, so the comparison is not
+confounded by the agents still being available. Without `--arm` the other arm
+is `on` (plugin defaults); with `--arm`, one arm per flag, each with its own
+environment. Arms run interleaved, in an order that rotates every rep, because
+cache warmth and service load drift over a run. Every row carries a pass/fail
+from the task's own `task_verify` — a cheaper arm that did not do the work is
+not a saving.
 
 **The task must be long and multi-turn, and must read the big files early.**
 The entire thesis is that context is re-sent on every later turn, so a one-shot
-"read this and summarise it" measures the 1.25× cache write and nothing else.
-`bench/tasks/smoke.sh` is deliberately that shape, and it reliably shows the
-shunt losing — it is there to prove the chain fires, not to measure anything.
-See `bench/tasks/TEMPLATE.sh`.
+"read this and summarise it" measures the cache write and nothing else.
+`bench/tasks/smoke.sh` is deliberately that shape. It is there to prove the
+chain fires, not to measure anything: earlier runs showed the shunt losing,
+and one run on Opus 5.5 came out cheaper, which means nothing either.
+`bench/tasks/bulk-discount.sh` is a real task built the right way. Copy
+`bench/tasks/TEMPLATE.sh` to write your own.
+
+**Tuning the threshold** is coarse by necessity. Two agentic sessions on the
+same task easily differ by 20–40% in cost, so 350 vs 450 lines is not
+measurable in any affordable number of runs; 200 vs 350 vs 800 can be. Start
+from `doctor`'s break-even, look at `report`'s size buckets to see which values
+would change anything, and A/B only those.
 
 Also `/haiku-shunt:shunt-report` and `/haiku-shunt:shunt-doctor` inside a session.
 
 ## Configuration
 
-Everything in `config/defaults.json`, overridable by environment variable:
+Defaults live in `config/defaults.json`, overridable by environment variable.
+`SHUNT_DISABLE`, `SHUNT_LOG_DIR` and `SHUNT_LOG_LOCK` are environment-only:
 
 | variable | default | meaning |
 |---|---|---|
@@ -220,13 +319,20 @@ Everything in `config/defaults.json`, overridable by environment variable:
 | `SHUNT_MAX_BYTES` | 200000 | byte ceiling: shunt regardless of line count |
 | `SHUNT_MODE` | `deny` | `warn` nudges via `additionalContext` instead of denying |
 | `SHUNT_MAX_DENIES_PER_PATH` | 2 | after this, the same path in the same session is let through |
+| `SHUNT_DENY_TTL` | 1800 | seconds after the last deny of a path before its count starts over |
+| `SHUNT_READ_TRUNCATION_LINES` | 2000 | Read's own cap when no `limit` is given |
 | `SHUNT_SHUNT_OTHER_AGENTS` | 1 | also shunt non-worker subagents (Explore, Plan…) |
 | `SHUNT_DISABLE` | — | `1` turns everything off |
 | `SHUNT_LOG_DIR` | plugin data dir | where `events-*.jsonl` goes |
 | `SHUNT_LOG_LOCK` | 0 | `1` adds `flock`; set this on NFS/CIFS |
+| `SHUNT_LOG_RETENTION_DAYS` | 30 | event logs and deny state older than this are deleted; `0` keeps everything |
 
-Prices live in `config/defaults.json` too. **Check them before trusting the
-money column** — they change, and this file is the only place they are stated.
+The event log records every Read and Bash call the hooks see, including the
+command text (up to 2,000 characters) and the working directory. Files are
+`0600` in a `0700` directory, and are pruned after `SHUNT_LOG_RETENTION_DAYS`.
+
+Prices live in `config/defaults.json` too, used only for `doctor`'s
+break-even. They change; benchmark costs come from Claude Code, not from here.
 
 ## How it avoids deadlocking on itself
 
@@ -240,7 +346,8 @@ independent guards, because the first one is not guaranteed:
 2. **Non-worker subagents** are still shunted by default (they benefit too);
    `SHUNT_SHUNT_OTHER_AGENTS=0` exempts them.
 3. **The deny cap.** After `SHUNT_MAX_DENIES_PER_PATH` refusals of the same path
-   in the same session, it is let through. This makes a loop structurally
+   in the same session, it is let through. The count starts over once
+   `SHUNT_DENY_TTL` (30 min) has passed since the last deny of that path. This makes a loop structurally
    impossible whatever happens to `agent_type` in a future release, and it is
    why the deny message can honestly promise the model a way out.
 
@@ -257,45 +364,48 @@ visible.
 
 ## Known limits
 
-- **After a deny, the model reliably picks windowed reads over delegating.**
-  In every unprompted live run so far it chose option 2, never option 1 — so
-  the tokens are avoided by paging rather than by a subagent. The report still
-  credits the deny with the whole file, which overstates the saving by whatever
-  the windows brought back in. Delegation happens when asked for by name.
-- The measured worker cost used to race the transcript: `SubagentStop` fires
-  while the worker\'s final message is still being flushed, and reading too
-  early undercounted its output ~6×. `hooks/subagent-stop.sh` now waits for the
-  final text block; records carry `transcript_settled` so you can see when it
-  gave up waiting.
+- **After a deny, the model may page through the whole file instead of
+  delegating.** With the original deny message it always did: the message
+  promised that windowed reads were always allowed, the model sent windows
+  larger than the threshold, and the deny cap let them through. The message now
+  states the window limit and warns against paging; the first smoke run after
+  that change delegated unprompted. One run is not a measurement — only an A/B
+  on a real task says how often it happens and whether the denies pay for
+  themselves.
 - `bash -c "cat big.txt"` is not inspected.
-- Token estimates are `chars/4`, ±15% on source code. `T` is estimated; worker
-  cost, summary size and turns-remaining are measured (`R` only after
-  `analyze --write`; until then the report says `assumed`).
-- The `code-writer` saving is a proxy, not a measurement — see above.
-- The counterfactual — whether you would have read the file at all — is not
-  observable. **The parent-side saving is a model, not a measurement**, and the
-  report says so every time it prints.
-- Delegation adds seconds of latency to a large read. `SHUNT_MODE=warn` is the
-  gentler setting for interactive work.
+- Globs are not expanded: `cat inv/*.py` is allowed as `unresolvable_arg`.
+  Nor are loops (`for f in ...; do cat "$f"`) or `xargs cat`/`xargs tail`:
+  the reader's operands are not on the command line. These are what models
+  most often run first on an unfamiliar package, so they are the leaks that
+  matter most in practice (see
+  [Does it pay off?](#does-it-pay-off-what-has-been-measured)).
+- Token estimates in the log are `chars/4`, ±15% on source code. They feed
+  nothing but the size buckets.
+- The break-even is a formula with assumed `R` and `h`, not a measurement.
+- Delegation is slow. In the smoke run it took a trivial question from 8 s
+  and 2 turns to 29 s and 5 turns, partly because the parent then re-read the
+  two windows the worker pointed to, as the deny message asks.
+  `SHUNT_MODE=warn` is the gentler setting for interactive work.
 - `claude plugin validate` does **not** check agent frontmatter — it accepts a
-  nonexistent `model:`. Only `haiku-shunt analyze` proves the worker is on Haiku.
+  nonexistent `model:`. After a delegation, `message.model` in the worker's
+  transcript (`~/.claude/projects/<project>/<session>/subagents/agent-*.jsonl`)
+  proves it is on Haiku. A Haiku entry in `modelUsage` does not: Claude Code
+  makes a small Haiku call of its own in every session.
 
 ## Development
 
 ```bash
-bash evals/run.sh              # 203 offline cases: hooks, recursion, robustness, cost math
+bash evals/run.sh              # offline cases: hooks, recursion, robustness, report
 bash evals/run.sh -v --hook bash --filter head
 claude plugin validate --strict .
 ```
 
 No network, no API cost, no Claude Code required. The suite covers the shell
 parser hard (bounded reads, fd-aware redirects, heredocs, `cd` tracking,
-prefixes, quoting, `/dev/zero`, symlinks), the recursion guards including the
-namespaced form, fail-open on malformed input, 200-way concurrent log appends,
-and the cost arithmetic against hand-computed values — including the write-side
-proxy, the measured-vs-assumed provenance of `R`, the fact that `group_by`
-sorts by `message.id` so the last group is not the last message, and the
-SubagentStop race below.
+prefixes, quoting, pipelines, `/dev/zero`, symlinks), the recursion guards
+including the namespaced form, fail-open on malformed input, 200-way concurrent
+log appends, the deny cap, the report's counts and size buckets, and the
+break-even arithmetic against hand-computed values.
 
 `claude plugin eval` cases would be the natural second tier for behavioural
 checks, but it is early-access gated and cannot assert hook decisions anyway.

@@ -2,7 +2,7 @@
 name: code-writer
 description: Generates repetitive, pattern-following code (test cases, fixtures, config, type stubs, docstrings, translations) directly to disk from a spec plus a reference file. Use when more than about 80% of the output is predictable from an existing file, so the generated code never occupies the orchestrator's output tokens.
 tools: Read, Grep, Glob, Write
-model: claude-haiku-4-5-20251001
+model: claude-haiku-4-5
 maxTurns: 8
 ---
 

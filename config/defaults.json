@@ -14,22 +14,29 @@
     "reader_commands": ["cat", "less", "more", "bat", "head", "tail"],
     "exempt_extensions": ["png","jpg","jpeg","gif","webp","bmp","ico","pdf","zip","gz","tar","whl","so","o","a","bin","exe","woff","woff2","ttf","mp4","mp3","parquet","npy","pkl"]
   },
+  "logging": {
+    "retention_days": 30
+  },
   "pricing_usd_per_mtok": {
     "_comment": "Verify against https://claude.com/pricing before trusting the money column.",
-    "cache_write_multiplier": 1.25,
+    "_cache_comment": "Observed in transcripts (usage.cache_creation): the main session writes 1h cache (2x input), subagents write 5m cache (1.25x). cache_read_multiplier is the default read rate; a model's own cache_read overrides it.",
+    "parent_cache_write_multiplier": 2.0,
+    "worker_cache_write_multiplier": 1.25,
     "cache_read_multiplier": 0.10,
     "models": {
-      "claude-opus-5":    { "input": 5.0, "output": 25.0 },
-      "claude-sonnet-5":  { "input": 2.0, "output": 10.0 },
-      "claude-haiku-4-5": { "input": 1.0, "output": 5.0 },
-      "claude-fable-5-1": { "input": 10.0, "output": 50.0 }
+      "claude-fable-5-1": { "input": 10.0, "output": 50.0, "cache_read": 0.025 },
+      "claude-opus-5-5":  { "input": 4.0,  "output": 20.0, "cache_read": 0.05 },
+      "claude-opus-5":    { "input": 5.0,  "output": 25.0 },
+      "claude-sonnet-5":  { "input": 2.0,  "output": 10.0 },
+      "claude-haiku-4-5": { "input": 1.0,  "output": 5.0 }
     },
+    "doctor_parents": ["claude-sonnet-5", "claude-opus-5-5", "claude-opus-5", "claude-fable-5-1"],
     "default_parent": "claude-sonnet-5",
     "default_worker": "claude-haiku-4-5"
   },
   "estimation": {
     "bytes_per_token": 4,
-    "read_gutter_tokens_per_line": 1.5,
+    "worker_floor_tokens": 14600,
     "assumed_turns_remaining": 12,
     "assumed_cache_hit_rate": 0.90
   }

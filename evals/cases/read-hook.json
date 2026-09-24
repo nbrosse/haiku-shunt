@@ -256,7 +256,7 @@
     {
       "name": "targeted_offset_only",
       "hook": "read",
-      "why": "offset alone signals intent",
+      "why": "offset near the end: only 101 lines left to return",
       "input": {
         "hook_event_name": "PreToolUse",
         "tool_name": "Read",
@@ -322,12 +322,171 @@
       },
       "expect": {
         "decision": "deny",
-        "reason_code": "over_threshold"
+        "reason_code": "window_over_threshold"
       },
       "fixtures": {
         "f": {
           "mode": "seq",
           "lines": 5000
+        }
+      }
+    },
+    {
+      "name": "offset_only_from_start",
+      "hook": "read",
+      "why": "Read(offset=1) is a full read by another name: up to 2000 lines",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Read",
+        "session_id": "offset_only_from_start",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "file_path": "@FIX:f@",
+          "offset": 1
+        }
+      },
+      "expect": {
+        "decision": "deny",
+        "reason_code": "window_over_threshold",
+        "reason_matches": "window of 2000 lines from line 1"
+      },
+      "fixtures": {
+        "f": {
+          "mode": "seq",
+          "lines": 5000
+        }
+      }
+    },
+    {
+      "name": "offset_only_mid_file",
+      "hook": "read",
+      "why": "an offset alone still returns 2000 lines",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Read",
+        "session_id": "offset_only_mid_file",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "file_path": "@FIX:f@",
+          "offset": 2500
+        }
+      },
+      "expect": {
+        "decision": "deny",
+        "reason_code": "window_over_threshold"
+      },
+      "fixtures": {
+        "f": {
+          "mode": "seq",
+          "lines": 5000
+        }
+      }
+    },
+    {
+      "name": "offset_only_past_eof",
+      "hook": "read",
+      "why": "nothing left to return",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Read",
+        "session_id": "offset_only_past_eof",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "file_path": "@FIX:f@",
+          "offset": 9999
+        }
+      },
+      "expect": {
+        "decision": "none",
+        "reason_code": "targeted_read"
+      },
+      "fixtures": {
+        "f": {
+          "mode": "seq",
+          "lines": 5000
+        }
+      }
+    },
+    {
+      "name": "large_limit_near_end",
+      "hook": "read",
+      "why": "limit=500 at line 4900 of 5000 returns only 101 lines",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Read",
+        "session_id": "large_limit_near_end",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "file_path": "@FIX:f@",
+          "offset": 4900,
+          "limit": 500
+        }
+      },
+      "expect": {
+        "decision": "none",
+        "reason_code": "targeted_read"
+      },
+      "fixtures": {
+        "f": {
+          "mode": "seq",
+          "lines": 5000
+        }
+      }
+    },
+    {
+      "name": "large_limit_mid_file",
+      "hook": "read",
+      "why": "limit=1000 in the middle really returns 1000 lines",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Read",
+        "session_id": "large_limit_mid_file",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "file_path": "@FIX:f@",
+          "offset": 2000,
+          "limit": 1000
+        }
+      },
+      "expect": {
+        "decision": "deny",
+        "reason_code": "window_over_threshold"
+      },
+      "fixtures": {
+        "f": {
+          "mode": "seq",
+          "lines": 5000
+        }
+      }
+    },
+    {
+      "name": "offset_only_under_byte_floor",
+      "hook": "read",
+      "why": "many lines, few bytes: same floor as a full read",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Read",
+        "session_id": "offset_only_under_byte_floor",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "file_path": "@FIX:f@",
+          "offset": 1
+        }
+      },
+      "expect": {
+        "decision": "none",
+        "reason_code": "under_byte_floor"
+      },
+      "fixtures": {
+        "f": {
+          "mode": "tiny",
+          "lines": 1000
         }
       }
     },
@@ -882,6 +1041,60 @@
         "decision": "deny",
         "reason_matches": "bulk-reader",
         "reason_not_matches": "(null|undefined|\\$\\{)"
+      },
+      "fixtures": {
+        "f": {
+          "mode": "seq",
+          "lines": 500
+        }
+      }
+    },
+    {
+      "name": "deny_reason_states_window_limit",
+      "hook": "read",
+      "why": "the model sent limit=670 after being told windows were always allowed",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Read",
+        "session_id": "deny_reason_states_window_limit",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "file_path": "@FIX:f@"
+        }
+      },
+      "expect": {
+        "decision": "deny",
+        "reason_matches": "limit of at most 200 lines",
+        "reason_not_matches": "always allowed, and you need one anyway before editing\\.$"
+      },
+      "fixtures": {
+        "f": {
+          "mode": "seq",
+          "lines": 500
+        }
+      },
+      "env": {
+        "SHUNT_MIN_LINES": "200"
+      }
+    },
+    {
+      "name": "deny_reason_warns_against_paging",
+      "hook": "read",
+      "why": "paging the whole file in windows defeats the shunt",
+      "input": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Read",
+        "session_id": "deny_reason_warns_against_paging",
+        "cwd": "@FIX@",
+        "transcript_path": "@FIX@/t.jsonl",
+        "tool_input": {
+          "file_path": "@FIX:f@"
+        }
+      },
+      "expect": {
+        "decision": "deny",
+        "reason_matches": "Do not page through the whole file"
       },
       "fixtures": {
         "f": {

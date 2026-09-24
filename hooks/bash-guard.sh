@@ -45,12 +45,12 @@ jq -e . >/dev/null 2>&1 <<<"$PARSE" || shunt_allow "internal_error"
 
 VERDICT=$(jq -r '.verdict' <<<"$PARSE")
 REASON=$(jq -r '.reason'  <<<"$PARSE")
-READER=$(jq -r '.reader // ""' <<<"$PARSE")
-BOUND=$(jq -r '.bound_lines // ""' <<<"$PARSE")
-FROM_LINE=$(jq -r '.from_line // ""' <<<"$PARSE")
 [ "$VERDICT" = "check" ] || shunt_allow "$REASON"
 
-mapfile -t FILES < <(jq -r '.files[]' <<<"$PARSE")
+# One line per file: path, reader, bound_lines, from_line. \x1f, not a tab:
+# IFS whitespace would collapse an empty bound into the next field.
+mapfile -t FILES < <(jq -r '.files[] | [.path, .reader, (.bound_lines // ""),
+  (.from_line // "")] | map(tostring) | join("\u001f")' <<<"$PARSE")
 # A command with hundreds of operands is not a read we can meaningfully
 # summarise, and passing them all to jq blows past ARG_MAX. Probe a bounded
 # prefix: if none of the first 16 trips the threshold, neither does the tail
@@ -60,8 +60,9 @@ TOTAL_OPERANDS=${#FILES[@]}
 [ "$TOTAL_OPERANDS" -gt "$MAX_OPERANDS" ] && FILES=("${FILES[@]:0:$MAX_OPERANDS}")
 
 TOTAL_LINES=0; TOTAL_BYTES=0; TRIP=0; PATHS=(); FIRST_ABS=""; DETAIL=""
-PROBED=0; LAST_FAIL=""
-for f in "${FILES[@]}"; do
+PROBED=0; LAST_FAIL=""; READER=""
+for entry in "${FILES[@]}"; do
+  IFS=$'\x1f' read -r f reader bound from_line <<<"$entry"
   case "$f" in *"/.haiku-shunt/"*|*"/haiku-shunt/metrics/"*) shunt_allow "path_exempt" ;; esac
   if ! shunt_probe "$f"; then
     PATHS+=("$(jq -cn --arg a "$f" --arg r "$F_REASON" '{abs:$a, exists:false, reason:$r}')")
@@ -69,23 +70,28 @@ for f in "${FILES[@]}"; do
     continue
   fi
 
-  # How many lines does this command actually put on stdout?
+  # How many lines does this command actually put on stdout? `tail -n +K`
+  # starts at line K; a head/tail later in the pipe can cap it further.
   eff="$F_LINES"
-  if [ -n "$FROM_LINE" ] && [ "$FROM_LINE" != "null" ]; then
-    eff=$(( F_LINES - FROM_LINE + 1 )); [ "$eff" -lt 0 ] && eff=0
-  elif [ -n "$BOUND" ] && [ "$BOUND" != "null" ]; then
-    [ "$BOUND" -lt "$eff" ] && eff="$BOUND"
+  if [ -n "$from_line" ]; then
+    eff=$(( F_LINES - $(shunt_int "$from_line" 1) + 1 )); [ "$eff" -lt 0 ] && eff=0
+  fi
+  if [ -n "$bound" ]; then
+    bound=$(shunt_int "$bound" "$eff"); [ "$bound" -lt "$eff" ] && eff="$bound"
   fi
 
   PROBED=$((PROBED + 1))
-  [ -z "$FIRST_ABS" ] && FIRST_ABS="$f"
   PATHS+=("$(jq -cn --arg a "$f" --argjson l "$F_LINES" --argjson e "$eff" --argjson b "$F_BYTES" \
               '{abs:$a, exists:true, lines:$l, effective_lines:$e, bytes:$b}')")
 
-  if [ "$eff" -gt "$MIN_LINES" ] && [ "$F_BYTES" -gt "$MIN_BYTES" ]; then
-    TRIP=1; DETAIL="$eff lines, threshold $MIN_LINES"
-  elif [ "$F_BYTES" -gt "$MAX_BYTES" ] && [ "$eff" -eq "$F_LINES" ]; then
-    TRIP=1; DETAIL="$F_BYTES bytes"
+  # The deny (and its per-path cap) is about the first file that trips.
+  if [ "$TRIP" = "0" ]; then
+    if [ "$eff" -gt "$MIN_LINES" ] && [ "$F_BYTES" -gt "$MIN_BYTES" ]; then
+      TRIP=1; DETAIL="$eff lines, threshold $MIN_LINES"
+    elif [ "$F_BYTES" -gt "$MAX_BYTES" ] && [ "$eff" -eq "$F_LINES" ]; then
+      TRIP=1; DETAIL="$F_BYTES bytes"
+    fi
+    [ "$TRIP" = "1" ] && FIRST_ABS="$f" && READER="$reader"
   fi
   TOTAL_LINES=$((TOTAL_LINES + eff))
   TOTAL_BYTES=$((TOTAL_BYTES + F_BYTES))
