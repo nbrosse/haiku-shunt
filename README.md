@@ -166,26 +166,44 @@ two identical sessions differ by 20–40%. The cheaper cache reads get (0.05×
 on Opus 5.5, 0.025× on Fable 5.1), the smaller this gets. It grows only with
 very large files (logs, generated JSON, 10,000+ lines) and very long sessions.
 
-**A/B on a real task: no effect beyond noise.** `bench/tasks/bulk-discount.sh`
-is a feature across a 2,300-line package, with its own tests and a hidden
-check against the original rules. 3 reps per arm, all 6 runs passed:
+**A/B on a real task: suggestive at best, and not from delegation.**
+`bench/tasks/bulk-discount.sh` is a feature across a 2,300-line package, with
+its own tests and a hidden check against the original rules. Two campaigns of
+3 reps per arm, the second after the deny message was renamed to `Agent(...)`:
 
-| arm | median cost | range | turns | denies | delegations |
-|---|---|---|---|---|---|
-| off | $0.449 | $0.317–0.488 | 18 | 0 | 0 |
-| on | $0.370 | $0.357–0.402 | 18 | 1 | **0** |
+| campaign | arm | median cost | range | median turns | passed | denies | delegations |
+|---|---|---|---|---|---|---|---|
+| 1 | off | $0.449 | $0.317–0.488 | 18 | 3/3 | 0 | 0 |
+| 1 | on | $0.370 | $0.357–0.402 | 18 | 3/3 | 1 | **0** |
+| 2 | off | $0.452 | $0.446–0.486 | 14 | 2/3 | 0 | 0 |
+| 2 | on | $0.415 | $0.410–0.435 | 17 | 3/3 | 2 | **0** |
 
-The −18% is noise: the control arm alone spans a wider range. Nothing was
-delegated. After a deny, the model took options 2 and 3 of the deny message
-(`grep`, then `sed -n` and windowed Reads), which a model editing code needs
-anyway. And the most common first move in *both* arms was `cat inv/*.py`,
-which the Bash hook lets through (see [Known limits](#known-limits)), so the
-whole package reached context regardless.
+Pooled, the six `on` runs have a median of $0.406 against $0.451 for `off`
+(−10%). Five of the six `off` runs cost more than every `on` run; the sixth
+cost less than all of them. With six runs per arm that is not significant
+(exact two-sided Mann–Whitney p ≈ 0.065). It is worth a larger campaign, not a
+claim.
+
+Whatever the saving is, Haiku is not where it comes from: in twelve runs,
+nothing was delegated. After a deny, the model took options 2 and 3 of the
+deny message (`grep`, then `sed -n` and windowed Reads), which a model editing
+code needs anyway. If the plugin pays at all, it is the Read hook steering
+the parent towards targeted reads, not `bulk-reader`.
+
+And the leaks are wide open. The usual first move is to dump the package:
+`cat inv/*.py`, `for f in $(git ls-files); do cat "$f"; done`, or
+`git ls-files | xargs tail -n +1`. The Bash hook lets all three through (see
+[Known limits](#known-limits)). In campaign 2, every `on` run started with
+`xargs wc -l` to size the files first, and two of the three then stayed on
+targeted reads; every `off` run started with a full dump. Three runs cannot
+say whether the plugin's agent descriptions cause that.
 
 **The wiring works.** In the smoke run the Read was denied, `bulk-reader`
 was delegated to and ran on `claude-haiku-4-5-20251001`, and the hook saw it as
 `haiku-shunt:bulk-reader` and exempted its reads. The answer was correct.
-The mechanism is not the problem; the size of the saving is.
+Re-run on 2026-09-24 after the deny message switched to
+`Agent(subagent_type="haiku-shunt:bulk-reader")`: the model called exactly
+that. The mechanism is not the problem; the size of the saving is.
 
 **Spotify's version is leakier, not better.** Going by the table in
 [What it does](#what-it-does), upstream misses `cd`, later segments, `2>`
@@ -356,14 +374,18 @@ visible.
   themselves.
 - `bash -c "cat big.txt"` is not inspected.
 - Globs are not expanded: `cat inv/*.py` is allowed as `unresolvable_arg`.
-  This is what models most often run first on an unfamiliar package, so it is
-  the leak that matters most in practice (see
+  Nor are loops (`for f in ...; do cat "$f"`) or `xargs cat`/`xargs tail`:
+  the reader's operands are not on the command line. These are what models
+  most often run first on an unfamiliar package, so they are the leaks that
+  matter most in practice (see
   [Does it pay off?](#does-it-pay-off-what-has-been-measured)).
 - Token estimates in the log are `chars/4`, ±15% on source code. They feed
   nothing but the size buckets.
 - The break-even is a formula with assumed `R` and `h`, not a measurement.
-- Delegation adds seconds of latency to a large read. `SHUNT_MODE=warn` is the
-  gentler setting for interactive work.
+- Delegation is slow. In the smoke run it took a trivial question from 8 s
+  and 2 turns to 29 s and 5 turns, partly because the parent then re-read the
+  two windows the worker pointed to, as the deny message asks.
+  `SHUNT_MODE=warn` is the gentler setting for interactive work.
 - `claude plugin validate` does **not** check agent frontmatter — it accepts a
   nonexistent `model:`. After a delegation, `message.model` in the worker's
   transcript (`~/.claude/projects/<project>/<session>/subagents/agent-*.jsonl`)
