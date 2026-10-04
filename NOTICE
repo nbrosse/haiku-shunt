@@ -11,8 +11,8 @@ plugin in Spotify's portal-ai-plugins:
 
 Spotify's design - a PreToolUse hook that blocks large reads and routes them to
 a cheaper model, paired with skills that tell the orchestrator what to do
-instead - is the origin of this approach, and the eval-case structure here
-follows theirs.
+instead - is the origin of this approach. The eval cases follow the same JSON
+layout as theirs; the cases themselves are written for this project.
 
 No Spotify source code is copied. The worker transport differs entirely:
 Spotify's routes through portal-cli to Spotify Portal/AiKA, while this project

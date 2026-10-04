@@ -4,6 +4,15 @@ Keeps bulk file reads out of your orchestrator's context by delegating them to
 a Haiku subagent. A Portal-free reimplementation of
 [Spotify's `shunt`](https://github.com/spotify/portal-ai-plugins/tree/main/plugins/shunt).
 
+**TL;DR.** The hooks deny large file reads and point the model to a Haiku
+subagent, so the file never enters the expensive context, which is re-sent on
+every turn. Measured by an A/B priced by Claude Code itself, on a real
+multi-turn task: −10% median cost with the plugin, not significant over 6 runs
+per arm (p ≈ 0.065), and in 12 runs the model never delegated, so whatever it
+saves comes from steering the parent to targeted reads, not from Haiku. Often,
+a line in `CLAUDE.md` does as well; see
+[Does it pay off?](#does-it-pay-off-what-has-been-measured).
+
 ```
               Sonnet / Opus  (reasoning, debugging, edits)
                      │
@@ -67,7 +76,7 @@ and is denied like one. `offset=4900, limit=500` on a 5000-line file returns
 
 **Bash hook.** Catches `cat`/`less`/`more`/`bat` dumps that bypass the Read
 tool. It treats a *bounded* read as equivalent to `Read(limit=N)`, which is
-where it differs from upstream:
+where it differs from upstream (as of [`e14bdb1`](https://github.com/spotify/portal-ai-plugins/tree/e14bdb1/plugins/shunt), 2026-08-14):
 
 | command | haiku-shunt | Spotify's shunt |
 |---|---|---|
@@ -178,6 +187,8 @@ its own tests and a hidden check against the original rules. Two campaigns of
 | 2 | off | $0.452 | $0.446–0.486 | 14 | 2/3 | 0 | 0 |
 | 2 | on | $0.415 | $0.410–0.435 | 17 | 3/3 | 2 | **0** |
 
+![Cost per run, with and without the plugin](docs/ab-cost.svg)
+
 Pooled, the six `on` runs have a median of $0.406 against $0.451 for `off`
 (−10%). Five of the six `off` runs cost more than every `on` run; the sixth
 cost less than all of them. With six runs per arm that is not significant
@@ -205,8 +216,8 @@ Re-run on 2026-09-24 after the deny message switched to
 `Agent(subagent_type="haiku-shunt:bulk-reader")`: the model called exactly
 that. The mechanism is not the problem; the size of the saving is.
 
-**Spotify's version is leakier, not better.** Going by the table in
-[What it does](#what-it-does), upstream misses `cd`, later segments, `2>`
+**Upstream has the same kind of gaps.** Going by the table in
+[What it does](#what-it-does), upstream (as of `e14bdb1`) misses `cd`, later segments, `2>`
 and pipes through `cat`; it blocks `head -100` on a large file, and lets
 `head -n N` through whatever `N` is. No
 `PreToolUse` hook can stop a model that wants a file; the leaks are inherent
