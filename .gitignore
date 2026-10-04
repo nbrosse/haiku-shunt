@@ -3,3 +3,4 @@ evals/results/
 .haiku-shunt/
 *.pyc
 __pycache__/
+TODO.md

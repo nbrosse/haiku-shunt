@@ -67,7 +67,7 @@ and is denied like one. `offset=4900, limit=500` on a 5000-line file returns
 
 **Bash hook.** Catches `cat`/`less`/`more`/`bat` dumps that bypass the Read
 tool. It treats a *bounded* read as equivalent to `Read(limit=N)`, which is
-where it differs from upstream:
+where it differs from upstream (as of [`e14bdb1`](https://github.com/spotify/portal-ai-plugins/tree/e14bdb1/plugins/shunt), 2026-08-14):
 
 | command | haiku-shunt | Spotify's shunt |
 |---|---|---|
@@ -205,8 +205,8 @@ Re-run on 2026-09-24 after the deny message switched to
 `Agent(subagent_type="haiku-shunt:bulk-reader")`: the model called exactly
 that. The mechanism is not the problem; the size of the saving is.
 
-**Spotify's version is leakier, not better.** Going by the table in
-[What it does](#what-it-does), upstream misses `cd`, later segments, `2>`
+**Upstream has the same kind of gaps.** Going by the table in
+[What it does](#what-it-does), upstream (as of `e14bdb1`) misses `cd`, later segments, `2>`
 and pipes through `cat`; it blocks `head -100` on a large file, and lets
 `head -n N` through whatever `N` is. No
 `PreToolUse` hook can stop a model that wants a file; the leaks are inherent
