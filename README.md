@@ -8,9 +8,9 @@ a Haiku subagent. A Portal-free reimplementation of
 subagent, so the file never enters the expensive context, which is re-sent on
 every turn. Measured by an A/B priced by Claude Code itself, on a real
 multi-turn task: −10% median cost with the plugin, not significant over 6 runs
-per arm (p ≈ 0.065), and in 12 runs the model never delegated, so whatever it
-saves comes from steering the parent to targeted reads, not from Haiku. Often,
-a line in `CLAUDE.md` does as well; see
+per arm (p ≈ 0.065), and in the 6 runs with the plugin the model never
+delegated, so whatever it saves comes from steering the parent to targeted
+reads, not from Haiku. A line in `CLAUDE.md` may do as well (not measured); see
 [Does it pay off?](#does-it-pay-off-what-has-been-measured).
 
 ```
@@ -195,8 +195,8 @@ cost less than all of them. With six runs per arm that is not significant
 (exact two-sided Mann–Whitney p ≈ 0.065). It is worth a larger campaign, not a
 claim.
 
-Whatever the saving is, Haiku is not where it comes from: in twelve runs,
-nothing was delegated. After a deny, the model took options 2 and 3 of the
+Whatever the saving is, Haiku is not where it comes from: in the six runs
+with the plugin, nothing was delegated (the `off` runs cannot delegate). After a deny, the model took options 2 and 3 of the
 deny message (`grep`, then `sed -n` and windowed Reads), which a model editing
 code needs anyway. If the plugin pays at all, it is the Read hook steering
 the parent towards targeted reads, not `bulk-reader`.
