@@ -4,6 +4,15 @@ Keeps bulk file reads out of your orchestrator's context by delegating them to
 a Haiku subagent. A Portal-free reimplementation of
 [Spotify's `shunt`](https://github.com/spotify/portal-ai-plugins/tree/main/plugins/shunt).
 
+**TL;DR.** The hooks deny large file reads and point the model to a Haiku
+subagent, so the file never enters the expensive context, which is re-sent on
+every turn. Measured by an A/B priced by Claude Code itself, on a real
+multi-turn task: −10% median cost with the plugin, not significant over 6 runs
+per arm (p ≈ 0.065), and in 12 runs the model never delegated, so whatever it
+saves comes from steering the parent to targeted reads, not from Haiku. Often,
+a line in `CLAUDE.md` does as well; see
+[Does it pay off?](#does-it-pay-off-what-has-been-measured).
+
 ```
               Sonnet / Opus  (reasoning, debugging, edits)
                      │
@@ -177,6 +186,8 @@ its own tests and a hidden check against the original rules. Two campaigns of
 | 1 | on | $0.370 | $0.357–0.402 | 18 | 3/3 | 1 | **0** |
 | 2 | off | $0.452 | $0.446–0.486 | 14 | 2/3 | 0 | 0 |
 | 2 | on | $0.415 | $0.410–0.435 | 17 | 3/3 | 2 | **0** |
+
+![Cost per run, with and without the plugin](docs/ab-cost.svg)
 
 Pooled, the six `on` runs have a median of $0.406 against $0.451 for `off`
 (−10%). Five of the six `off` runs cost more than every `on` run; the sixth
