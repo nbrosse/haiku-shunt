@@ -117,18 +117,18 @@ re-sent ~37 more times, discounted to ~10% of the input rate by prompt caching.
 Keeping it out of the parent entirely is what compounds.
 
 ```
-C_avoided = T · P_in · (2 + μ·R) / 1e6      μ = k·h + 2(1−h)
+C_avoided = T · P_in · (w + μ·R) / 1e6      μ = r·h + w·(1−h)
 ```
 
 `T` = tokens in the file, `R` = turns remaining after the read, `h` = cache-hit
-rate, `k` = the parent's cache-read rate (0.10 for most models, 0.05 for Opus
-5.5, 0.025 for Fable 5.1). Both `2`s are the
-1-hour cache write, which Claude Code's main session uses and which is billed
-at 2× input (its subagents use the 5-minute TTL, 1.25×). The leading `2` is the
-write when the file first enters context. The `2` in `μ` is the price of a
-miss: Claude Code caches every request, so a miss re-writes the prefix rather
-than paying plain input — its transcripts show almost no uncached input. At
-`R=0` only the first write remains. The `μ·R` term is where the saving lives.
+rate. Prices are multiples of the parent's input price `P_in`: `r` = the
+parent's cache-read rate (0.10 for most models, 0.05 for Opus 5.5, 0.025 for
+Fable 5.1), `w` = its cache-write rate, 2 for the 1-hour cache that Claude
+Code's main session uses (its subagents use the 5-minute cache, 1.25×). The
+leading `w` is the write when the file first enters context. The `w` in `μ` is
+the price of a miss: Claude Code caches every request, so a miss re-writes the
+prefix rather than paying plain input — its transcripts show almost no uncached
+input. At `R=0` only the first write remains. The `μ·R` term is where the saving lives.
 
 That formula is the argument, not the measurement. Whether you would have read
 the file at all is not observable, so no log of what the hooks did can say what
@@ -159,7 +159,7 @@ out saves less.
 Short answer: not measurably, so far. These are the findings as of 2026-09-24
 (Claude Code 2.1.281, Opus 5.5 parent). Read them before you adopt the plugin.
 
-**The ceiling is a few cents per avoided read.** Take a 747-line file (~4,500
+**A few cents per avoided read.** Take a 747-line file (~4,500
 tokens) read in full on turn 1 of an 18-turn Opus 5.5 session:
 
 ```
@@ -168,10 +168,12 @@ re-sends      4,500 × $0.20/M (0.05× input) × 17 turns ≈ $0.015
                                                   total ≈ $0.05
 ```
 
-That is the most the shunt can save on that read, out of a ~$0.40 session.
-From it, take the worker's fixed cost (~$0.02 of Haiku) and the windows the
-parent still has to read before editing. What is left is a few cents, while
-two identical sessions differ by 20–40%. The cheaper cache reads get (0.05×
+That assumes every re-send is a cache hit. A miss re-writes the prefix at 2×
+input, so with `h=0.9` the re-sends cost ~$0.075 and the total ~$0.11: 5 to 11
+cents on that read, out of a ~$0.40 session. From it, take the worker's fixed
+cost (~$0.02 of Haiku) and the windows the parent still has to read before
+editing. What is left is a few cents, while runs of the same arm in the A/B
+below vary by ~11% in cost (one by 30%). The cheaper cache reads get (0.05×
 on Opus 5.5, 0.025× on Fable 5.1), the smaller this gets. It grows only with
 very large files (logs, generated JSON, 10,000+ lines) and very long sessions.
 
@@ -180,19 +182,26 @@ very large files (logs, generated JSON, 10,000+ lines) and very long sessions.
 its own tests and a hidden check against the original rules. Two campaigns of
 3 reps per arm, the second after the deny message was renamed to `Agent(...)`:
 
-| campaign | arm | median cost | range | median turns | passed | denies | delegations |
-|---|---|---|---|---|---|---|---|
-| 1 | off | $0.449 | $0.317–0.488 | 18 | 3/3 | 0 | 0 |
-| 1 | on | $0.370 | $0.357–0.402 | 18 | 3/3 | 1 | **0** |
-| 2 | off | $0.452 | $0.446–0.486 | 14 | 2/3 | 0 | 0 |
-| 2 | on | $0.415 | $0.410–0.435 | 17 | 3/3 | 2 | **0** |
+| campaign | arm | cost of each run | median turns | passed | denies per run | delegations |
+|---|---|---|---|---|---|---|
+| 1 | off | $0.317, $0.449, $0.488 | 18 | 3/3 | — | — |
+| 1 | on | $0.357, $0.370, $0.402 | 18 | 3/3 | 1, 2, 1 | **0** |
+| 2 | off | $0.446†, $0.452, $0.486 | 14 | 2/3 | — | — |
+| 2 | on | $0.410, $0.415, $0.435 | 17 | 3/3 | 1, 0, 1 | **0** |
+
+Cost is `total_cost_usd` per session, worker included; † failed the check.
+Turns are Claude Code's `num_turns`. Denies are reads blocked by the hooks;
+delegations are calls to `bulk-reader`. `off` loads no plugin, so it can do
+neither (—).
 
 ![Cost per run, with and without the plugin](docs/ab-cost.svg)
 
 Pooled, the six `on` runs have a median of $0.406 against $0.451 for `off`
 (−10%). Five of the six `off` runs cost more than every `on` run; the sixth
 cost less than all of them. With six runs per arm that is not significant
-(exact two-sided Mann–Whitney p ≈ 0.065). It is worth a larger campaign, not a
+(exact two-sided Mann–Whitney p ≈ 0.065; p ≈ 0.09 comparing runs only within
+their campaign). Detecting a 10% effect at that noise level takes ~20 runs per
+arm. It is worth a larger campaign, not a
 claim.
 
 Whatever the saving is, Haiku is not where it comes from: in the six runs
@@ -311,7 +320,7 @@ and one run on Opus 5.5 came out cheaper, which means nothing either.
 `bench/tasks/TEMPLATE.sh` to write your own.
 
 **Tuning the threshold** is coarse by necessity. Two agentic sessions on the
-same task easily differ by 20–40% in cost, so 350 vs 450 lines is not
+same task differ by ~11% in cost (one run in the A/B by 30%), so 350 vs 450 lines is not
 measurable in any affordable number of runs; 200 vs 350 vs 800 can be. Start
 from `doctor`'s break-even, look at `report`'s size buckets to see which values
 would change anything, and A/B only those.
